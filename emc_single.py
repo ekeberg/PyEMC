@@ -13,6 +13,8 @@ from eke import shell_functions
 from eke import conversions
 from eke import compare_rotations
 
+pyemc.set_nthreads(256)
+
 wavelength = conversions.ev_to_nm(8000)
 detector_distance = 0.2
 pixel_size = 2*200e-6
