@@ -2,7 +2,7 @@ import cupy
 import numpy
 from eke import rotmodule
 
-NTHREADS = 256
+NTHREADS = 128
 MAX_PHOTON_COUNT = 200000
 _INTERPOLATION = {"nearest_neighbour": 0,
                   "linear": 1}
@@ -103,75 +103,91 @@ def init_model_radial_average(patterns, randomness=0.):
     return cupy.asarray(model, dtype="float32")
         
 
-# def import_cuda_file(file_name, kernel_names):
-#     header_file = "header.cu"
-#     with h5py.File(header_file, "r") as file_handle:
-#         header_source = file_handle.read()
-#     with h5py.File(file_name, "r") as file_handle:
-#         main_source = file_handle.read()
-#     combined_source = "\n".join((header_source, main_source))
-#     module = cupy.RawModule(code=combined_source)
-#     kernels = {}
-#     for this_name in kernel_names:
-#         kernels[this_name] = module.get_function(this_name)
-#     return kernels
+def import_cuda_file(file_name, kernel_names):
+    # nthreads = 128
+    threads_code = f"const int NTHREADS = {NTHREADS};"
+    header_file = "header.cu"
+    with open(header_file, "r") as file_handle:
+        header_source = file_handle.read()
+    with open(file_name, "r") as file_handle:
+        main_source = file_handle.read()
+    combined_source = "\n".join((header_source, threads_code, main_source))
+    # print(combined_source)
+    # import sys; sys.exit()
+    module = cupy.RawModule(code=combined_source)
+    kernels = {}
+    for this_name in kernel_names:
+        kernels[this_name] = module.get_function(this_name)
+    return kernels
 
-# emc_kernels = import_cuda_file("emc_cuda.cu", ["kernel_expand_model",
-#                                                "kernel_insert_slices"])
+emc_kernels = import_cuda_file("emc_cuda.cu", ["kernel_expand_model",
+                                               "kernel_insert_slices"])
 
-# respons_kernels = import_cuda_file("calculate_responsabilities_cuda.cu", ["kernel_sum_slices",
-#                                                                           "kernel_calculate_responsabilities_poisson",
-#                                                                           "kernel_calculate_responsabilities_poisson_scaling",
-#                                                                           "kernel_calculate_responsabilities_poisson_per_pattern_scaling",
-#                                                                           "kernel_calculate_responsabilities_sparse",
-#                                                                           "kernel_calculate_responsabilities_sparse_scaling",
-#                                                                           "kernel_calculate_responsabilities_sparse_per_pattern_scaling"])
+respons_kernels = import_cuda_file("calculate_responsabilities_cuda.cu", ["kernel_sum_slices",
+                                                                          "kernel_calculate_responsabilities_poisson",
+                                                                          "kernel_calculate_responsabilities_poisson_scaling",
+                                                                          "kernel_calculate_responsabilities_poisson_per_pattern_scaling",
+                                                                          "kernel_calculate_responsabilities_sparse",
+                                                                          "kernel_calculate_responsabilities_sparse_scaling",
+                                                                          "kernel_calculate_responsabilities_sparse_per_pattern_scaling"])
 
+scaling_kernels = import_cuda_file("calculate_scaling_cuda.cu", ["kernel_calculate_scaling_poisson",
+                                                                 "kernel_calculate_scaling_poisson_sparse",
+                                                                 "kernel_calculate_scaling_per_pattern_poisson",
+                                                                 "kernel_calculate_scaling_per_pattern_poisson_sparse"])
 
-
-
-with open("emc_cuda.cu", "r") as file_handle:
-    emc_cuda_source = file_handle.read()
-
-emc_cuda = cupy.RawModule(code=emc_cuda_source)
-kernel_expand_model = emc_cuda.get_function("kernel_expand_model")
-kernel_insert_slices = emc_cuda.get_function("kernel_insert_slices")
-
-
-with open("calculate_responsabilities_cuda.cu", "r") as file_handle:
-    calculate_responsabilities_source = file_handle.read()
-
-calculate_responsabilities = cupy.RawModule(code=calculate_responsabilities_source)
-kernel_sum_slices =  calculate_responsabilities.get_function("kernel_sum_slices")
-kernel_calculate_responsabilities_poisson = calculate_responsabilities.get_function("kernel_calculate_responsabilities_poisson")
-kernel_calculate_responsabilities_poisson_scaling = calculate_responsabilities.get_function("kernel_calculate_responsabilities_poisson_scaling")
-kernel_calculate_responsabilities_poisson_per_pattern_scaling = calculate_responsabilities.get_function("kernel_calculate_responsabilities_poisson_per_pattern_scaling")
-kernel_calculate_responsabilities_sparse = calculate_responsabilities.get_function("kernel_calculate_responsabilities_sparse")
-kernel_calculate_responsabilities_sparse_scaling = calculate_responsabilities.get_function("kernel_calculate_responsabilities_sparse_scaling")
-kernel_calculate_responsabilities_sparse_per_pattern_scaling = calculate_responsabilities.get_function("kernel_calculate_responsabilities_sparse_per_pattern_scaling")
+slices_kernels = import_cuda_file("update_slices_cuda.cu", ["kernel_normalize_slices",
+                                                            "kernel_update_slices",
+                                                            "kernel_update_slices_scaling",
+                                                            "kernel_update_slices_per_pattern_scaling",
+                                                            "kernel_update_slices_sparse",
+                                                            "kernel_update_slices_sparse_scaling",
+                                                            "kernel_update_slices_sparse_per_pattern_scaling"])
+kernels = {**emc_kernels, **respons_kernels, **scaling_kernels, **slices_kernels}
 
 
-with open("calculate_scaling_cuda.cu", "r") as file_handle:
-    calculate_scaling_source = file_handle.read()
+# with open("emc_cuda.cu", "r") as file_handle:
+#     emc_cuda_source = file_handle.read()
 
-calculate_scaling = cupy.RawModule(code=calculate_scaling_source)
-kernel_calculate_scaling_poisson = calculate_scaling.get_function("kernel_calculate_scaling_poisson")
-kernel_calculate_scaling_poisson_sparse = calculate_scaling.get_function("kernel_calculate_scaling_poisson_sparse")
-kernel_calculate_scaling_per_pattern_poisson = calculate_scaling.get_function("kernel_calculate_scaling_per_pattern_poisson")
-kernel_calculate_scaling_per_pattern_poisson_sparse = calculate_scaling.get_function("kernel_calculate_scaling_per_pattern_poisson_sparse")
+# emc_cuda = cupy.RawModule(code=emc_cuda_source)
+# kernel_expand_model = emc_cuda.get_function("kernel_expand_model")
+# kernel_insert_slices = emc_cuda.get_function("kernel_insert_slices")
 
 
-with open("update_slices_cuda.cu", "r") as file_handle:
-    update_slices_source = file_handle.read()
+# with open("calculate_responsabilities_cuda.cu", "r") as file_handle:
+#     calculate_responsabilities_source = file_handle.read()
 
-update_slices = cupy.RawModule(code=update_slices_source)
-kernel_normalize_slices = update_slices.get_function("kernel_normalize_slices")
-kernel_update_slices = update_slices.get_function("kernel_update_slices")
-kernel_update_slices_scaling = update_slices.get_function("kernel_update_slices_scaling")
-kernel_update_slices_per_pattern_scaling = update_slices.get_function("kernel_update_slices_per_pattern_scaling")
-kernel_update_slices_sparse = update_slices.get_function("kernel_update_slices_sparse")
-kernel_update_slices_sparse_scaling = update_slices.get_function("kernel_update_slices_sparse_scaling")
-kernel_update_slices_sparse_per_pattern_scaling = update_slices.get_function("kernel_update_slices_sparse_per_pattern_scaling")
+# calculate_responsabilities = cupy.RawModule(code=calculate_responsabilities_source)
+# kernel_sum_slices =  calculate_responsabilities.get_function("kernel_sum_slices")
+# kernel_calculate_responsabilities_poisson = calculate_responsabilities.get_function("kernel_calculate_responsabilities_poisson")
+# kernel_calculate_responsabilities_poisson_scaling = calculate_responsabilities.get_function("kernel_calculate_responsabilities_poisson_scaling")
+# kernel_calculate_responsabilities_poisson_per_pattern_scaling = calculate_responsabilities.get_function("kernel_calculate_responsabilities_poisson_per_pattern_scaling")
+# kernel_calculate_responsabilities_sparse = calculate_responsabilities.get_function("kernel_calculate_responsabilities_sparse")
+# kernel_calculate_responsabilities_sparse_scaling = calculate_responsabilities.get_function("kernel_calculate_responsabilities_sparse_scaling")
+# kernel_calculate_responsabilities_sparse_per_pattern_scaling = calculate_responsabilities.get_function("kernel_calculate_responsabilities_sparse_per_pattern_scaling")
+
+
+# with open("calculate_scaling_cuda.cu", "r") as file_handle:
+#     calculate_scaling_source = file_handle.read()
+
+# calculate_scaling = cupy.RawModule(code=calculate_scaling_source)
+# kernel_calculate_scaling_poisson = calculate_scaling.get_function("kernel_calculate_scaling_poisson")
+# kernel_calculate_scaling_poisson_sparse = calculate_scaling.get_function("kernel_calculate_scaling_poisson_sparse")
+# kernel_calculate_scaling_per_pattern_poisson = calculate_scaling.get_function("kernel_calculate_scaling_per_pattern_poisson")
+# kernel_calculate_scaling_per_pattern_poisson_sparse = calculate_scaling.get_function("kernel_calculate_scaling_per_pattern_poisson_sparse")
+
+
+# with open("update_slices_cuda.cu", "r") as file_handle:
+#     update_slices_source = file_handle.read()
+
+# update_slices = cupy.RawModule(code=update_slices_source)
+# kernel_normalize_slices = update_slices.get_function("kernel_normalize_slices")
+# kernel_update_slices = update_slices.get_function("kernel_update_slices")
+# kernel_update_slices_scaling = update_slices.get_function("kernel_update_slices_scaling")
+# kernel_update_slices_per_pattern_scaling = update_slices.get_function("kernel_update_slices_per_pattern_scaling")
+# kernel_update_slices_sparse = update_slices.get_function("kernel_update_slices_sparse")
+# kernel_update_slices_sparse_scaling = update_slices.get_function("kernel_update_slices_sparse_scaling")
+# kernel_update_slices_sparse_per_pattern_scaling = update_slices.get_function("kernel_update_slices_sparse_per_pattern_scaling")
 
 
 def expand_model(model, slices, rotations, coordinates):
@@ -187,10 +203,10 @@ def expand_model(model, slices, rotations, coordinates):
         raise ValueError("coordinates must be 3xXxY array where X and Y are the dimensions of the slices.")
 
     number_of_rotations = len(rotations)
-    kernel_expand_model((len(rotations), ), (NTHREADS, ),
-                        (model, model.shape[2], model.shape[1], model.shape[0],
-                         slices, slices.shape[2], slices.shape[1],
-                         rotations, coordinates))
+    kernels["kernel_expand_model"]((len(rotations), ), (NTHREADS, ),
+                                   (model, model.shape[2], model.shape[1], model.shape[0],
+                                    slices, slices.shape[2], slices.shape[1],
+                                    rotations, coordinates))
 
     
 def insert_slices(model, model_weights, slices, slice_weights, rotations, coordinates, interpolation="linear"):
@@ -211,10 +227,10 @@ def insert_slices(model, model_weights, slices, slice_weights, rotations, coordi
 
     interpolation_int = _INTERPOLATION[interpolation]
     number_of_rotations = len(rotations)
-    kernel_insert_slices((number_of_rotations, ), (NTHREADS, ),
-                         (model, model_weights, model.shape[2], model.shape[1], model.shape[0],
-                          slices, slices.shape[2], slices.shape[1], slice_weights,
-                          rotations, coordinates, interpolation_int))
+    kernels["kernel_insert_slices"]((number_of_rotations, ), (NTHREADS, ),
+                                    (model, model_weights, model.shape[2], model.shape[1], model.shape[0],
+                                     slices, slices.shape[2], slices.shape[1], slice_weights,
+                                     rotations, coordinates, interpolation_int))
 
     
 def update_slices(slices, patterns, responsabilities, scalings=None):
@@ -228,19 +244,19 @@ def update_slices(slices, patterns, responsabilities, scalings=None):
         raise ValueError("Scalings must have the same shape as responsabilities")
 
     if scalings is None:
-        kernel_update_slices((len(slices), ), (NTHREADS, ),
-                             (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
-                              responsabilities))
+        kernels["kernel_update_slices"]((len(slices), ), (NTHREADS, ),
+                                        (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
+                                         responsabilities))
     elif len(scalings.shape) == 2:
         # Scaling per pattern and slice pair
-        kernel_update_slices_scaling((len(slices), ), (NTHREADS, ),
-                                      (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
-                                       responsabilities, scalings))
+        kernels["kernel_update_slices_scaling"]((len(slices), ), (NTHREADS, ),
+                                                (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
+                                                 responsabilities, scalings))
     else:
         # Scaling per pattern
-        kernel_update_slices_per_pattern_scaling((len(slices), ), (NTHREADS, ),
-                                                 (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
-                                                  responsabilities, scalings))
+        kernels["kernel_update_slices_per_pattern_scaling"]((len(slices), ), (NTHREADS, ),
+                                                            (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
+                                                             responsabilities, scalings))
 
         
 def calculate_responsabilities_poisson(patterns, slices, responsabilities, scalings=None):
@@ -256,21 +272,21 @@ def calculate_responsabilities_poisson(patterns, slices, responsabilities, scali
                                      (len(scalings.shape) == 1 or scalings.shape[0] == patterns.shape[0])):
         raise ValueError("Scalings must have the same shape as responsabilities")
     if scalings is None:
-        kernel_calculate_responsabilities_poisson((len(patterns), len(slices)), (NTHREADS, ),
-                                                  (patterns, slices, slices.shape[2]*slices.shape[1],
-                                                   responsabilities, calculate_responsabilities_poisson.log_factorial_table))
+        kernels["kernel_calculate_responsabilities_poisson"]((len(patterns), len(slices)), (NTHREADS, ),
+                                                             (patterns, slices, slices.shape[2]*slices.shape[1],
+                                                              responsabilities, calculate_responsabilities_poisson.log_factorial_table))
     elif len(scalings.shape) == 2:
         # Scaling per pattern and slice pair
-        kernel_calculate_responsabilities_poisson_scaling((len(patterns), len(slices)), (NTHREADS, ),
-                                                          (patterns, slices, slices.shape[2]*slices.shape[1],
-                                                           scalings, responsabilities,
-                                                           calculate_responsabilities_poisson.log_factorial_table))
+        kernels["kernel_calculate_responsabilities_poisson_scaling"]((len(patterns), len(slices)), (NTHREADS, ),
+                                                                     (patterns, slices, slices.shape[2]*slices.shape[1],
+                                                                      scalings, responsabilities,
+                                                                      calculate_responsabilities_poisson.log_factorial_table))
     else:
         # Scaling per pattern
-        kernel_calculate_responsabilities_poisson_per_pattern_scaling((len(patterns), len(slices)), (NTHREADS, ),
-                                                                      (patterns, slices, slices.shape[2]*slices.shape[1],
-                                                                       scalings, responsabilities,
-                                                                       calculate_responsabilities_poisson.log_factorial_table))
+        kernels["kernel_calculate_responsabilities_poisson_per_pattern_scaling"]((len(patterns), len(slices)), (NTHREADS, ),
+                                                                                 (patterns, slices, slices.shape[2]*slices.shape[1],
+                                                                                  scalings, responsabilities,
+                                                                                  calculate_responsabilities_poisson.log_factorial_table))
 calculate_responsabilities_poisson.log_factorial_table = None
 
 
@@ -305,29 +321,32 @@ def calculate_responsabilities_sparse(patterns, slices, responsabilities, scalin
 
     number_of_rotations = len(slices)
     if scalings is None:
-        kernel_sum_slices((len(slices), ), (NTHREADS, ),
-                          (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
-        kernel_calculate_responsabilities_sparse((len(patterns), len(slices)), (NTHREADS, ),
-                                                 (patterns["start_indices"], patterns["indices"], patterns["values"],
-                                                  slices, slices.shape[2]*slices.shape[1], responsabilities,
-                                                  calculate_responsabilities_sparse.slice_sums,
-                                                  calculate_responsabilities_sparse.log_factorial_table))
+        kernels["kernel_sum_slices"]((len(slices), ), (NTHREADS, ),
+                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
+        kernels["kernel_calculate_responsabilities_sparse"]((len(patterns), len(slices)), (NTHREADS, ),
+                                                            (patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                             slices, slices.shape[2]*slices.shape[1], responsabilities,
+                                                             calculate_responsabilities_sparse.slice_sums,
+                                                             calculate_responsabilities_sparse.log_factorial_table))
     elif len(scalings.shape) == 2:
-        kernel_sum_slices((len(slices), ), (NTHREADS, ),
-                          (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
-        kernel_calculate_responsabilities_sparse_scaling((len(patterns), len(slices)), (NTHREADS, ),
-                                                         (patterns["start_indices"], patterns["indices"], patterns["values"],
-                                                         slices, slices.shape[2]*slices.shape[1],
-                                                         scalings, responsabilities, calculate_responsabilities_sparse.slice_sums,
-                                                         calculate_responsabilities_sparse.log_factorial_table))
+        kernels["kernel_sum_slices"]((len(slices), ), (NTHREADS, ),
+                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
+        kernels["kernel_calculate_responsabilities_sparse_scaling"]((len(patterns), len(slices)), (NTHREADS, ),
+                                                                    (patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                                     slices, slices.shape[2]*slices.shape[1],
+                                                                     scalings, responsabilities,
+                                                                     calculate_responsabilities_sparse.slice_sums,
+                                                                     calculate_responsabilities_sparse.log_factorial_table))
     else:
-        kernel_sum_slices((len(slices), ), (NTHREADS, ),
-                          (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
-        kernel_calculate_responsabilities_sparse_per_pattern_scaling((len(patterns), len(slices)), (NTHREADS, ),
-                                                                     (patterns["start_indices"], patterns["indices"], patterns["values"],
-                                                                      slices, slices.shape[2]*slices.shape[1], scalings,
-                                                                      responsabilities, calculate_responsabilities_sparse.slice_sums,
-                                                                      calculate_responsabilities_sparse.log_factorial_table))
+        kernels["kernel_sum_slices"]((len(slices), ), (NTHREADS, ),
+                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
+        kernels["kernel_calculate_responsabilities_sparse_per_pattern_scaling"]((len(patterns), len(slices)), (NTHREADS, ),
+                                                                                (patterns["start_indices"], patterns["indices"],
+                                                                                 patterns["values"],
+                                                                                 slices, slices.shape[2]*slices.shape[1], scalings,
+                                                                                 responsabilities,
+                                                                                 calculate_responsabilities_sparse.slice_sums,
+                                                                                 calculate_responsabilities_sparse.log_factorial_table))
 calculate_responsabilities_sparse.log_factorial_table = None
 calculate_responsabilities_sparse.slice_sums = None
 
@@ -352,22 +371,22 @@ def update_slices_sparse(slices, patterns, responsabilities, scalings=None, resp
         raise ValueError("Scalings must have the same shape as responsabilities")
     
     if scalings is None:
-        kernel_update_slices_sparse((len(slices), ), (NTHREADS, ),
-                                    (slices, slices.shape[2]*slices.shape[1],
-                                     patterns["start_indices"], patterns["indices"], patterns["values"],
-                                     number_of_patterns, responsabilities, resp_threshold))
+        kernels["kernel_update_slices_sparse"]((len(slices), ), (NTHREADS, ),
+                                               (slices, slices.shape[2]*slices.shape[1],
+                                                patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                number_of_patterns, responsabilities, resp_threshold))
     elif len(scalings.shape) == 2:
         # Scaling per pattern and slice pair
-        kernel_update_slices_sparse_scaling((len(slices), ), (NTHREADS, ),
-                                            (slices, slices.shape[2]*slices.shape[1],
-                                             patterns["start_indices"], patterns["indices"], patterns["values"],
-                                             number_of_patterns, responsabilities, resp_threshold, scalings))
+        kernels["kernel_update_slices_sparse_scaling"]((len(slices), ), (NTHREADS, ),
+                                                       (slices, slices.shape[2]*slices.shape[1],
+                                                        patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                        number_of_patterns, responsabilities, resp_threshold, scalings))
     else:
         # Scaling per pattern
-        kernel_update_slices_sparse_per_pattern_scaling((len(slices), ), (NTHREADS, ),
-                                                        (slices, slices.shape[2]*slices.shape[1],
-                                                         patterns["start_indices"], patterns["indices"], patterns["values"],
-                                                         number_of_patterns, responsabilities, scalings))
+        kernels["kernel_update_slices_sparse_per_pattern_scaling"]((len(slices), ), (NTHREADS, ),
+                                                                   (slices, slices.shape[2]*slices.shape[1],
+                                                                    patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                                    number_of_patterns, responsabilities, scalings))
 
 
 def calculate_scaling_poisson(patterns, slices, scaling):
@@ -381,8 +400,8 @@ def calculate_scaling_poisson(patterns, slices, scaling):
         raise ValueError("Slices and patterns must be the same shape")
     if scaling.shape[0] != slices.shape[0] or scaling.shape[1] != patterns.shape[0]:
         raise ValueError("scaling must have shape nrotations x npatterns")        
-    kernel_calculate_scaling_poisson((len(patterns), len(slices)), (NTHREADS, ),
-                                     (patterns, slices, scaling, slices.shape[0]*slices.shape[1]))
+    kernels["kernel_calculate_scaling_poisson"]((len(patterns), len(slices)), (NTHREADS, ),
+                                                (patterns, slices, scaling, slices.shape[0]*slices.shape[1]))
 
 
 def calculate_scaling_per_pattern_poisson(patterns, slices, responsabilities, scaling):
@@ -400,9 +419,9 @@ def calculate_scaling_per_pattern_poisson(patterns, slices, responsabilities, sc
         raise ValueError("scaling must have same length as patterns")
     if slices.shape[0] != responsabilities.shape[0] or patterns.shape[0] != responsabilities.shape[1]:
         raise ValueError("Responsabilities must have shape nrotations x npatterns")
-    kernel_calculate_scaling_per_pattern_poisson((len(patterns), ), (NTHREADS, ),
-                                                 (patterns, slices, responsabilities, scaling,
-                                                  slices.shape[1]*slices.shape[2], len(slices)))
+    kernels["kernel_calculate_scaling_per_pattern_poisson"]((len(patterns), ), (NTHREADS, ),
+                                                            (patterns, slices, responsabilities, scaling,
+                                                             slices.shape[1]*slices.shape[2], len(slices)))
 
 
 def calculate_scaling_poisson_sparse(patterns, slices, scaling):
@@ -423,9 +442,9 @@ def calculate_scaling_poisson_sparse(patterns, slices, scaling):
     number_of_patterns = len(patterns["start_indices"])-1
     if scaling.shape[0] != slices.shape[0] or scaling.shape[1] != number_of_patterns:
         raise ValueError("scaling must have shape nrotations x npatterns")        
-    kernel_calculate_scaling_poisson_sparse((len(patterns), len(slices)), (NTHREADS, ),
-                                            (patterns["start_indices"], patterns["indices"], patterns["values"],
-                                             slices, scaling, slices.shape[1]*slices.shape[2]))
+    kernels["kernel_calculate_scaling_poisson_sparse"]((len(patterns), len(slices)), (NTHREADS, ),
+                                                       (patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                        slices, scaling, slices.shape[1]*slices.shape[2]))
 
 
 def calculate_scaling_per_pattern_poisson_sparse(patterns, slices, scaling):
@@ -448,20 +467,7 @@ def calculate_scaling_per_pattern_poisson_sparse(patterns, slices, scaling):
         raise ValueError("scaling must have same length as patterns")
     if slices.shape[0] != responsabilities.shape[0] or number_of_patterns != responsabilities.shape[1]:
         raise ValueError("Responsabilities must have shape nrotations x npatterns")
-    kernel_calculate_scaling_per_pattern_poisson_sparse((len(patterns), ), (NTHREADS, ),
-                                                        (patterns["start_indices"], patterns["indices"], patterns["values"],
-                                                         slices, responsabilities, scaling, slices.shape[1]*slices.shape[2],
-                                                         len(slices)))
-
-
-# number_of_rotations = 10000
-# pattern_shape = (128, )*2
-# model_shape = (128, )*3
-
-# coordinates =  cupy.array((ewald_coordinates(pattern_shape, 1e-9, 0.5, 150e-6)), dtype="float32")
-# model = cupy.array(cupy.random.random(model_shape), dtype="float32")
-# rotations = cupy.array(cupy.array(rotmodule.random(number_of_rotations)), dtype="float32")
-# slices = cupy.array(cupy.zeros((number_of_rotations, ) + pattern_shape), dtype="float32")
-
-# kernel_expand_model((number_of_rotations, ), (NTHREADS, ), (model, model_shape[0], model_shape[1], model_shape[2],
-#                                                        slices, pattern_shape[0], pattern_shape[1], rotations, coordinates))
+    kernels["kernel_calculate_scaling_per_pattern_poisson_sparse"]((len(patterns), ), (NTHREADS, ),
+                                                                   (patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                                    slices, responsabilities, scaling, slices.shape[1]*slices.shape[2],
+                                                                    len(slices)))
