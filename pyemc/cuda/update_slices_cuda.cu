@@ -30,7 +30,7 @@ extern "C" __global__ void kernel_normalize_slices(float *const slices,
 }
 
 extern "C" __global__ void kernel_update_slices(float *const slices,
-						const float *const patterns,
+						const int *const patterns,
 						const int number_of_patterns,
 						const int number_of_pixels,
 						const float *const responsabilities)
@@ -43,8 +43,8 @@ extern "C" __global__ void kernel_update_slices(float *const slices,
        pixel_index += blockDim.x) {
     sum = 0.;
     weight = 0.;
-    for (int pattern_index = 0; 
-	 pattern_index < number_of_patterns; 
+    for (int pattern_index = 0;
+	 pattern_index < number_of_patterns;
 	 pattern_index++) {
       if (patterns[pattern_index*number_of_pixels + pixel_index] >= 0.) {
 	sum += (patterns[pattern_index*number_of_pixels + pixel_index] *
@@ -60,8 +60,51 @@ extern "C" __global__ void kernel_update_slices(float *const slices,
   }
 }
 
+
+
+/* extern "C" __global__ void kernel_update_slices(float *const slices, */
+/* 						const int *const patterns, */
+/* 						const int number_of_patterns, */
+/* 						const int number_of_pixels, */
+/* 						const float *const responsabilities) */
+/* { */
+/*   const int index_rotation = blockIdx.x; */
+
+/*   for (int pattern_index = threadIdx.x; pattern_index < number_of_patterns; pattern_index += blockDim.x) { */
+/*     for (int pixel_index = 0; pixel_index < number_of_pixels; pixel_index++) { */
+/*       slices[index_rotation*number_of_pixels + pixel_index] += (patterns[pattern_index*number_of_pixels + pixel_index] * */
+/* 								responsabilities[index_rotation*number_of_patterns + pattern_index]); */
+/*     } */
+/*   } */
+	
+  /* float sum; */
+  /* float weight; */
+  /* for (int pixel_index = threadIdx.x; */
+  /*      pixel_index < number_of_pixels; */
+  /*      pixel_index += blockDim.x) { */
+  /*   sum = 0.; */
+  /*   weight = 0.; */
+  /*   for (int pattern_index = 0; */
+  /* 	 pattern_index < number_of_patterns; */
+  /* 	 pattern_index++) { */
+  /*     if (patterns[pattern_index*number_of_pixels + pixel_index] >= 0.) { */
+  /* 	sum += (patterns[pattern_index*number_of_pixels + pixel_index] * */
+  /* 		responsabilities[index_rotation*number_of_patterns + pattern_index]); */
+  /* 	weight += responsabilities[index_rotation*number_of_patterns + pattern_index]; */
+  /*     } */
+  /*   } */
+  /*   if (weight > 0.) { */
+  /*     slices[index_rotation*number_of_pixels + pixel_index] = sum / weight; */
+  /*   } else { */
+  /*     slices[index_rotation*number_of_pixels + pixel_index] = -1.; */
+  /*   } */
+  /* } */
+/* } */
+
+
+
 extern "C" __global__ void kernel_update_slices_scaling(float *const slices,
-							const float *const patterns,
+							const int *const patterns,
 							const int number_of_patterns,
 							const int number_of_pixels,
 							const float *const responsabilities,
@@ -93,7 +136,7 @@ extern "C" __global__ void kernel_update_slices_scaling(float *const slices,
 
 
 extern "C" __global__ void kernel_update_slices_per_pattern_scaling(float *const slices,
-								    const float *const patterns,
+								    const int *const patterns,
 								    const int number_of_patterns,
 								    const int number_of_pixels,
 								    const float *const responsabilities,
@@ -128,7 +171,7 @@ extern "C" __global__ void kernel_update_slices_sparse(float *const slices,
 						       const int number_of_pixels,
 						       const int *const pattern_start_indices,
 						       const int *const pattern_indices,
-						       const float *const pattern_values,
+						       const int *const pattern_values,
 						       const int number_of_patterns,
 						       const float *const responsabilities,
 						       const float resp_threshold)
@@ -161,7 +204,7 @@ extern "C" __global__ void kernel_update_slices_sparse_scaling(float *const slic
 							       const int number_of_pixels,
 							       const int *const pattern_start_indices,
 							       const int *const pattern_indices,
-							       const float *const pattern_values,
+							       const int *const pattern_values,
 							       const int number_of_patterns,
 							       const float *const responsabilities,
 							       const float resp_threshold,
@@ -213,7 +256,7 @@ extern "C" __global__ void kernel_update_slices_sparse_per_pattern_scaling(float
 									   const int number_of_pixels,
 									   const int *const pattern_start_indices,
 									   const int *const pattern_indices,
-									   const float *const pattern_values,
+									   const int *const pattern_values,
 									   const int number_of_patterns,
 									   const float *const responsabilities,
 									   const float *const scaling)

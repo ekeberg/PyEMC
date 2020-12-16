@@ -1,5 +1,5 @@
 
-extern "C" __global__ void kernel_calculate_responsabilities_poisson(const float* const patterns,
+extern "C" __global__ void kernel_calculate_responsabilities_poisson(const int* const patterns,
 								     const float *const slices,
 								     const int number_of_pixels,
 								     float *const responsabilities,
@@ -11,18 +11,21 @@ extern "C" __global__ void kernel_calculate_responsabilities_poisson(const float
   const int index_slice = blockIdx.y;
   const int number_of_patterns = gridDim.x;
   
-  const float *const pattern = &patterns[number_of_pixels*index_pattern];
+  const int *const pattern = &patterns[number_of_pixels*index_pattern];
   const float *const slice = &slices[number_of_pixels*index_slice];
   
   float sum = 0.;
   for (int index = threadIdx.x; index < number_of_pixels; index += blockDim.x) {
-    if (pattern[index] >= 0. && slice[index] > 0.) {
+    if (pattern[index] >= 0 && slice[index] > 0.) {
+      /* sum += ((-slice[index]) + */
+      /* 	      ((int) pattern[index]) * logf(slice[index]) - */
+      /* 	      log_factorial_table[(int) pattern[index]]); */
       /* sum += ((-slice[index]) + */
       /* 	      ((int) pattern[index]) * logf(slice[index]) - */
       /* 	      log_factorial_table[(int) pattern[index]]); */
       sum += ((-slice[index]) +
-      	      ((int) pattern[index]) * logf(slice[index]) -
-      	      log_factorial_table[(int) pattern[index]]);
+      	      pattern[index] * logf(slice[index]) -
+      	      log_factorial_table[pattern[index]]);
     }
   }
   sum_cache[threadIdx.x] = sum;
@@ -34,7 +37,7 @@ extern "C" __global__ void kernel_calculate_responsabilities_poisson(const float
 }
 
 
-extern "C" __global__ void kernel_calculate_responsabilities_poisson_scaling(const float *const patterns,
+extern "C" __global__ void kernel_calculate_responsabilities_poisson_scaling(const int *const patterns,
 									     const float *const slices,
 									     const int number_of_pixels,
 									     const float *const scalings,
@@ -47,7 +50,7 @@ extern "C" __global__ void kernel_calculate_responsabilities_poisson_scaling(con
   const int index_slice = blockIdx.y;
   const int number_of_patterns = gridDim.x;
   
-  const float *const pattern = &patterns[number_of_pixels*index_pattern];
+  const int *const pattern = &patterns[number_of_pixels*index_pattern];
   const float *const slice = &slices[number_of_pixels*index_slice];
   const float scaling = scalings[index_slice*number_of_patterns + index_pattern];
   
@@ -55,8 +58,8 @@ extern "C" __global__ void kernel_calculate_responsabilities_poisson_scaling(con
   for (int index = threadIdx.x; index < number_of_pixels; index += blockDim.x) {
     if (pattern[index] >= 0. && slice[index] > 0.) {
       sum += ((-slice[index]/scaling) +
-	      ((int) pattern[index]) * logf(slice[index]/scaling) -
-	      log_factorial_table[(int) pattern[index]]);
+	      pattern[index] * logf(slice[index]/scaling) -
+	      log_factorial_table[pattern[index]]);
     }
   }
   sum_cache[threadIdx.x] = sum;
@@ -90,7 +93,7 @@ extern "C" __global__ void kernel_sum_slices(const float *const slices,
 }
 
 
-extern "C"__global__ void kernel_calculate_responsabilities_poisson_per_pattern_scaling(const float *const patterns,
+extern "C"__global__ void kernel_calculate_responsabilities_poisson_per_pattern_scaling(const int *const patterns,
 											const float *const slices,
 											const int number_of_pixels,
 											const float *const scalings,
@@ -103,7 +106,7 @@ extern "C"__global__ void kernel_calculate_responsabilities_poisson_per_pattern_
   const int index_slice = blockIdx.y;
   const int number_of_patterns = gridDim.x;
   
-  const float *const pattern = &patterns[number_of_pixels*index_pattern];
+  const int *const pattern = &patterns[number_of_pixels*index_pattern];
   const float *const slice = &slices[number_of_pixels*index_slice];
   const float scaling = scalings[index_pattern];
   
@@ -111,8 +114,8 @@ extern "C"__global__ void kernel_calculate_responsabilities_poisson_per_pattern_
   for (int index = threadIdx.x; index < number_of_pixels; index += blockDim.x) {
     if (pattern[index] >= 0. && slice[index] > 0.) {
       sum += ((-slice[index]/scaling) +
-	      ((int) pattern[index]) * logf(slice[index]/scaling) -
-	      log_factorial_table[(int) pattern[index]]);
+	      pattern[index] * logf(slice[index]/scaling) -
+	      log_factorial_table[pattern[index]]);
     }
   }
   sum_cache[threadIdx.x] = sum;
@@ -125,7 +128,7 @@ extern "C"__global__ void kernel_calculate_responsabilities_poisson_per_pattern_
 
 extern "C" __global__ void kernel_calculate_responsabilities_sparse(const int *const pattern_start_indices,
 								    const int *const pattern_indices,
-								    const float *const pattern_values,
+								    const int *const pattern_values,
 								    const float *const slices,
 								    const int number_of_pixels,
 								    float *const responsabilities,
@@ -146,9 +149,9 @@ extern "C" __global__ void kernel_calculate_responsabilities_sparse(const int *c
        index += blockDim.x) {
     index_pixel = pattern_indices[index];
     if (slice[index_pixel] > 0.) {
-      sum += (((int) pattern_values[index]) *
+      sum += (pattern_values[index] *
       	      logf(slice[index_pixel]) -
-      	      log_factorial_table[(int)pattern_values[index]]);
+      	      log_factorial_table[pattern_values[index]]);
     }
   }
   sum_cache[threadIdx.x] = sum;
@@ -161,7 +164,7 @@ extern "C" __global__ void kernel_calculate_responsabilities_sparse(const int *c
 
 extern "C" __global__ void kernel_calculate_responsabilities_sparse_scaling(const int *const pattern_start_indices,
 									    const int *const pattern_indices,
-									    const float *const pattern_values,
+									    const int *const pattern_values,
 									    const float *const slices,
 									    const int number_of_pixels,
 									    const float *const scaling,
@@ -187,7 +190,7 @@ extern "C" __global__ void kernel_calculate_responsabilities_sparse_scaling(cons
        index += blockDim.x) {
     index_pixel = pattern_indices[index];
     if (slice[index_pixel] > 0.) {
-      sum += ((int) pattern_values[index]) * logf(slice[index_pixel]/this_scaling) - log_factorial_table[(int)pattern_values[index]];
+      sum += pattern_values[index] * logf(slice[index_pixel]/this_scaling) - log_factorial_table[pattern_values[index]];
     }
   }
   sum_cache[threadIdx.x] = sum;
@@ -200,7 +203,7 @@ extern "C" __global__ void kernel_calculate_responsabilities_sparse_scaling(cons
 
 extern "C" __global__ void kernel_calculate_responsabilities_sparse_per_pattern_scaling(const int *const pattern_start_indices,
 											const int *const pattern_indices,
-											const float *const pattern_values,
+											const int *const pattern_values,
 											const float *const slices,
 											const int number_of_pixels,
 											const float *const scaling,
@@ -222,7 +225,7 @@ extern "C" __global__ void kernel_calculate_responsabilities_sparse_per_pattern_
   for (int index = pattern_start_indices[index_pattern]+threadIdx.x; index < pattern_start_indices[index_pattern+1]; index += blockDim.x) {
     index_pixel = pattern_indices[index];
     if (slice[index_pixel] > 0.) {
-      sum += ((int) pattern_values[index]) * logf(slice[index_pixel]/this_scaling) - log_factorial_table[(int)pattern_values[index]];
+      sum += pattern_values[index] * logf(slice[index_pixel]/this_scaling) - log_factorial_table[pattern_values[index]];
     }
   }
   sum_cache[threadIdx.x] = sum;

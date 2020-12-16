@@ -1,5 +1,6 @@
 import cupy
 import numpy
+import os
 from eke import rotmodule
 
 _NTHREADS = 128
@@ -106,10 +107,11 @@ def init_model_radial_average(patterns, randomness=0.):
 def import_cuda_file(file_name, kernel_names):
     # nthreads = 128
     threads_code = f"const int NTHREADS = {_NTHREADS};"
+    cuda_files_dir = os.path.join(os.path.split(__file__)[0], "cuda")
     header_file = "header.cu"
-    with open(header_file, "r") as file_handle:
+    with open(os.path.join(cuda_files_dir, header_file), "r") as file_handle:
         header_source = file_handle.read()
-    with open(file_name, "r") as file_handle:
+    with open(os.path.join(cuda_files_dir, file_name), "r") as file_handle:
         main_source = file_handle.read()
     combined_source = "\n".join((header_source, threads_code, main_source))
     # print(combined_source)
@@ -121,26 +123,30 @@ def import_cuda_file(file_name, kernel_names):
     return kernels
 
 def import_kernels():
-    emc_kernels = import_cuda_file("emc_cuda.cu", ["kernel_expand_model",
-                                                   "kernel_insert_slices"])
-    respons_kernels = import_cuda_file("calculate_responsabilities_cuda.cu", ["kernel_sum_slices",
-                                                                              "kernel_calculate_responsabilities_poisson",
-                                                                              "kernel_calculate_responsabilities_poisson_scaling",
-                                                                              "kernel_calculate_responsabilities_poisson_per_pattern_scaling",
-                                                                              "kernel_calculate_responsabilities_sparse",
-                                                                              "kernel_calculate_responsabilities_sparse_scaling",
-                                                                              "kernel_calculate_responsabilities_sparse_per_pattern_scaling"])
-    scaling_kernels = import_cuda_file("calculate_scaling_cuda.cu", ["kernel_calculate_scaling_poisson",
-                                                                     "kernel_calculate_scaling_poisson_sparse",
-                                                                     "kernel_calculate_scaling_per_pattern_poisson",
-                                                                     "kernel_calculate_scaling_per_pattern_poisson_sparse"])
-    slices_kernels = import_cuda_file("update_slices_cuda.cu", ["kernel_normalize_slices",
-                                                                "kernel_update_slices",
-                                                                "kernel_update_slices_scaling",
-                                                                "kernel_update_slices_per_pattern_scaling",
-                                                                "kernel_update_slices_sparse",
-                                                                "kernel_update_slices_sparse_scaling",
-                                                                "kernel_update_slices_sparse_per_pattern_scaling"])
+    emc_kernels = import_cuda_file("emc_cuda.cu",
+                                   ["kernel_expand_model",
+                                    "kernel_insert_slices"])
+    respons_kernels = import_cuda_file("calculate_responsabilities_cuda.cu",
+                                       ["kernel_sum_slices",
+                                        "kernel_calculate_responsabilities_poisson",
+                                        "kernel_calculate_responsabilities_poisson_scaling",
+                                        "kernel_calculate_responsabilities_poisson_per_pattern_scaling",
+                                        "kernel_calculate_responsabilities_sparse",
+                                        "kernel_calculate_responsabilities_sparse_scaling",
+                                        "kernel_calculate_responsabilities_sparse_per_pattern_scaling"])
+    scaling_kernels = import_cuda_file("calculate_scaling_cuda.cu",
+                                       ["kernel_calculate_scaling_poisson",
+                                        "kernel_calculate_scaling_poisson_sparse",
+                                        "kernel_calculate_scaling_per_pattern_poisson",
+                                        "kernel_calculate_scaling_per_pattern_poisson_sparse"])
+    slices_kernels = import_cuda_file("update_slices_cuda.cu",
+                                      ["kernel_normalize_slices",
+                                       "kernel_update_slices",
+                                       "kernel_update_slices_scaling",
+                                       "kernel_update_slices_per_pattern_scaling",
+                                       "kernel_update_slices_sparse",
+                                       "kernel_update_slices_sparse_scaling",
+                                       "kernel_update_slices_sparse_per_pattern_scaling"])
     kernels = {**emc_kernels, **respons_kernels, **scaling_kernels, **slices_kernels}
     return kernels
 
