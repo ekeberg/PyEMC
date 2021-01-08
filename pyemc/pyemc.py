@@ -199,8 +199,17 @@ def insert_slices(model, model_weights, slices, slice_weights, rotations, coordi
                                      slices, slices.shape[2], slices.shape[1], slice_weights,
                                      rotations, coordinates, interpolation_int))
 
-    
+
 def update_slices(slices, patterns, responsabilities, scalings=None):
+    if isinstance(patterns, dict):
+        # data is sparse
+        update_slices_sparse(slices, patterns, responsabilities, scalings)
+    else:
+        # data is dense
+        update_slices_dense(slices, patterns, responsabilities, scalings)
+
+
+def update_slices_dense(slices, patterns, responsabilities, scalings=None):
     if len(patterns.shape) != 3: raise ValueError("patterns must be a 3D array")
     if len(slices.shape) != 3: raise ValueError("slices must be a 3D array.")
     if patterns.shape[1:] != slices.shape[1:]: raise ValueError("patterns and images must be the same size 2D images")
@@ -209,113 +218,21 @@ def update_slices(slices, patterns, responsabilities, scalings=None):
     if scalings is not None and not (scalings.shape == responsabilities.shape or
                                      (len(scalings.shape) == 1 and scalings.shape[0] == patterns.shape[0])):
         raise ValueError("Scalings must have the same shape as responsabilities")
-
+    number_of_rotations = len(slices)
     if scalings is None:
-        kernels["kernel_update_slices"]((len(slices), ), (_NTHREADS, ),
+        kernels["kernel_update_slices"]((number_of_rotations, ), (_NTHREADS, ),
                                         (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
                                          responsabilities))
     elif len(scalings.shape) == 2:
         # Scaling per pattern and slice pair
-        kernels["kernel_update_slices_scaling"]((len(slices), ), (_NTHREADS, ),
+        kernels["kernel_update_slices_scaling"]((number_of_rotations, ), (_NTHREADS, ),
                                                 (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
                                                  responsabilities, scalings))
     else:
         # Scaling per pattern
-        kernels["kernel_update_slices_per_pattern_scaling"]((len(slices), ), (_NTHREADS, ),
+        kernels["kernel_update_slices_per_pattern_scaling"]((number_of_rotations, ), (_NTHREADS, ),
                                                             (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
                                                              responsabilities, scalings))
-
-        
-def calculate_responsabilities_poisson(patterns, slices, responsabilities, scalings=None):
-    if len(patterns.shape) != 3: raise ValueError("patterns must be a 3D array")
-    if len(slices.shape) != 3: raise ValueError("slices must be a 3D array")
-    if patterns.shape[1:] != slices.shape[1:]: raise ValueError("patterns and images must be the same size 2D images")
-    if len(responsabilities.shape) != 2 or slices.shape[0] != responsabilities.shape[0] or patterns.shape[0] != responsabilities.shape[1]:
-        raise ValueError("responsabilities must have shape nrotations x npatterns")
-    if (calculate_responsabilities_poisson.log_factorial_table is None or
-        len(calculate_responsabilities_poisson.log_factorial_table) <= patterns.max()):
-        calculate_responsabilities_poisson.log_factorial_table = _log_factorial_table(patterns.max())
-    if scalings is not None and not (scalings.shape == responsabilities.shape or
-                                     (len(scalings.shape) == 1 or scalings.shape[0] == patterns.shape[0])):
-        raise ValueError("Scalings must have the same shape as responsabilities")
-    if scalings is None:
-        kernels["kernel_calculate_responsabilities_poisson"]((len(patterns), len(slices)), (_NTHREADS, ),
-                                                             (patterns, slices, slices.shape[2]*slices.shape[1],
-                                                              responsabilities, calculate_responsabilities_poisson.log_factorial_table))
-    elif len(scalings.shape) == 2:
-        # Scaling per pattern and slice pair
-        kernels["kernel_calculate_responsabilities_poisson_scaling"]((len(patterns), len(slices)), (_NTHREADS, ),
-                                                                     (patterns, slices, slices.shape[2]*slices.shape[1],
-                                                                      scalings, responsabilities,
-                                                                      calculate_responsabilities_poisson.log_factorial_table))
-    else:
-        # Scaling per pattern
-        kernels["kernel_calculate_responsabilities_poisson_per_pattern_scaling"]((len(patterns), len(slices)), (_NTHREADS, ),
-                                                                                 (patterns, slices, slices.shape[2]*slices.shape[1],
-                                                                                  scalings, responsabilities,
-                                                                                  calculate_responsabilities_poisson.log_factorial_table))
-calculate_responsabilities_poisson.log_factorial_table = None
-
-
-def calculate_responsabilities_sparse(patterns, slices, responsabilities, scalings=None):
-    if not isinstance(patterns, dict):
-        raise ValueError("patterns must be a dictionary containing the keys: indcies, values and start_indices")
-    if ("indices" not in patterns or
-        "values" not in patterns or
-        "start_indices" not in patterns):
-        raise ValueError("patterns must contain the keys indcies, values and start_indices")
-    if len(responsabilities.shape) != 2: raise ValueError("responsabilities must have shape nrotations x npatterns")
-    if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != responsabilities.shape[1]+1:
-        raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
-    if len(patterns["indices"].shape) != 1 or len(patterns["values"].shape) != 1 or patterns["indices"].shape != patterns["values"].shape:
-        raise ValueError("indices and values must have the same shape")
-    number_of_patterns = len(patterns["start_indices"])-1
-    if len(slices.shape) != 3:
-        raise ValueError("slices must be a 3d array")
-    if slices.shape[0] != responsabilities.shape[0]:
-        raise ValueError("Responsabilities and slices indicate different number of orientations")
-    if scalings is not None and not (scalings.shape == responsabilities.shape or
-                                     (len(scalings.shape) == 1 or scalings.shape[0] == number_of_patterns)):
-        raise ValueError("Scalings must have the same shape as responsabilities")
-    
-    if (calculate_responsabilities_sparse.log_factorial_table is None or
-        len(calculate_responsabilities_sparse.log_factorial_table) <= patterns["values"].max()):
-        calculate_responsabilities_sparse.log_factorial_table = _log_factorial_table(patterns["values"].max())
-    
-    if (calculate_responsabilities_sparse.slice_sums is None or
-        len(calculate_responsabilities_sparse.slice_sums) != len(slices)):
-        calculate_responsabilities_sparse.slice_sums = cupy.empty(len(slices), dtype="float32")
-
-    number_of_rotations = len(slices)
-    if scalings is None:
-        kernels["kernel_sum_slices"]((len(slices), ), (_NTHREADS, ),
-                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
-        kernels["kernel_calculate_responsabilities_sparse"]((len(patterns), len(slices)), (_NTHREADS, ),
-                                                            (patterns["start_indices"], patterns["indices"], patterns["values"],
-                                                             slices, slices.shape[2]*slices.shape[1], responsabilities,
-                                                             calculate_responsabilities_sparse.slice_sums,
-                                                             calculate_responsabilities_sparse.log_factorial_table))
-    elif len(scalings.shape) == 2:
-        kernels["kernel_sum_slices"]((len(slices), ), (_NTHREADS, ),
-                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
-        kernels["kernel_calculate_responsabilities_sparse_scaling"]((len(patterns), len(slices)), (_NTHREADS, ),
-                                                                    (patterns["start_indices"], patterns["indices"], patterns["values"],
-                                                                     slices, slices.shape[2]*slices.shape[1],
-                                                                     scalings, responsabilities,
-                                                                     calculate_responsabilities_sparse.slice_sums,
-                                                                     calculate_responsabilities_sparse.log_factorial_table))
-    else:
-        kernels["kernel_sum_slices"]((len(slices), ), (_NTHREADS, ),
-                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_sparse.slice_sums))
-        kernels["kernel_calculate_responsabilities_sparse_per_pattern_scaling"]((len(patterns), len(slices)), (_NTHREADS, ),
-                                                                                (patterns["start_indices"], patterns["indices"],
-                                                                                 patterns["values"],
-                                                                                 slices, slices.shape[2]*slices.shape[1], scalings,
-                                                                                 responsabilities,
-                                                                                 calculate_responsabilities_sparse.slice_sums,
-                                                                                 calculate_responsabilities_sparse.log_factorial_table))
-calculate_responsabilities_sparse.log_factorial_table = None
-calculate_responsabilities_sparse.slice_sums = None
 
 
 def update_slices_sparse(slices, patterns, responsabilities, scalings=None, resp_threshold=0.):
@@ -336,27 +253,146 @@ def update_slices_sparse(slices, patterns, responsabilities, scalings=None, resp
     if scalings is not None and not (scalings.shape == responsabilities.shape or
                                      (len(scalings.shape) == 1 and scalings.shape[0] == number_of_patterns)):
         raise ValueError("Scalings must have the same shape as responsabilities")
-    
+
+    number_of_rotations = len(slices)
+    number_of_pixels = slices.shape[1]*slices.shape[2] 
     if scalings is None:
-        kernels["kernel_update_slices_sparse"]((len(slices), ), (_NTHREADS, ),
+        kernels["kernel_update_slices_sparse"]((number_of_rotations, ), (_NTHREADS, ),
                                                (slices, slices.shape[2]*slices.shape[1],
                                                 patterns["start_indices"], patterns["indices"], patterns["values"],
                                                 number_of_patterns, responsabilities, resp_threshold))
+        kernels["kernel_normalize_slices"]((number_of_rotations, ), (_NTHREADS, ),
+                                           (slices, responsabilities, number_of_pixels, number_of_patterns))
     elif len(scalings.shape) == 2:
         # Scaling per pattern and slice pair
-        kernels["kernel_update_slices_sparse_scaling"]((len(slices), ), (_NTHREADS, ),
+        kernels["kernel_update_slices_sparse_scaling"]((number_of_rotations, ), (_NTHREADS, ),
                                                        (slices, slices.shape[2]*slices.shape[1],
                                                         patterns["start_indices"], patterns["indices"], patterns["values"],
                                                         number_of_patterns, responsabilities, resp_threshold, scalings))
+        kernels["kernel_normalize_slices"]((number_of_rotations, ), (_NTHREADS, ),
+                                           (slices, responsabilities, number_of_pixels, number_of_patterns))
     else:
         # Scaling per pattern
-        kernels["kernel_update_slices_sparse_per_pattern_scaling"]((len(slices), ), (_NTHREADS, ),
+        kernels["kernel_update_slices_sparse_per_pattern_scaling"]((number_of_rotations, ), (_NTHREADS, ),
                                                                    (slices, slices.shape[2]*slices.shape[1],
                                                                     patterns["start_indices"], patterns["indices"], patterns["values"],
                                                                     number_of_patterns, responsabilities, scalings))
+        kernels["kernel_normalize_slices"]((number_of_rotations, ), (_NTHREADS, ),
+                                           (slices, responsabilities, number_of_pixels, number_of_patterns))
+
+        
+def calculate_responsabilities_poisson(patterns, slices, responsabilities, scalings=None):
+    if isinstance(patterns, dict):
+        # sparse data
+        calculate_responsabilities_poisson_sparse(patterns, slices, responsabilities, scalings)
+    else:
+        # dense data
+        calculate_responsabilities_poisson_dense(patterns, slices, responsabilities, scalings)
+        
+def calculate_responsabilities_poisson_dense(patterns, slices, responsabilities, scalings=None):
+    if len(patterns.shape) != 3: raise ValueError("patterns must be a 3D array")
+    if len(slices.shape) != 3: raise ValueError("slices must be a 3D array")
+    if patterns.shape[1:] != slices.shape[1:]: raise ValueError("patterns and images must be the same size 2D images")
+    if len(responsabilities.shape) != 2 or slices.shape[0] != responsabilities.shape[0] or patterns.shape[0] != responsabilities.shape[1]:
+        raise ValueError("responsabilities must have shape nrotations x npatterns")
+    if (calculate_responsabilities_poisson_dense.log_factorial_table is None or
+        len(calculate_responsabilities_poisson_dense.log_factorial_table) <= patterns.max()):
+        calculate_responsabilities_poisson_dense.log_factorial_table = _log_factorial_table(patterns.max())
+    if scalings is not None and not (scalings.shape == responsabilities.shape or
+                                     (len(scalings.shape) == 1 or scalings.shape[0] == patterns.shape[0])):
+        raise ValueError("Scalings must have the same shape as responsabilities")
+    number_of_patterns = len(patterns)
+    number_of_rotations = len(slices)
+    if scalings is None:
+        kernels["kernel_calculate_responsabilities_poisson"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
+                                                             (patterns, slices, slices.shape[2]*slices.shape[1], responsabilities,
+                                                              calculate_responsabilities_poisson_dense.log_factorial_table))
+    elif len(scalings.shape) == 2:
+        # Scaling per pattern and slice pair
+        kernels["kernel_calculate_responsabilities_poisson_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
+                                                                     (patterns, slices, slices.shape[2]*slices.shape[1],
+                                                                      scalings, responsabilities,
+                                                                      calculate_responsabilities_poisson_dense.log_factorial_table))
+    else:
+        # Scaling per pattern
+        kernels["kernel_calculate_responsabilities_poisson_per_pattern_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
+                                                                                 (patterns, slices, slices.shape[2]*slices.shape[1],
+                                                                                  scalings, responsabilities,
+                                                                                  calculate_responsabilities_poisson_dense.log_factorial_table))
+calculate_responsabilities_poisson_dense.log_factorial_table = None
+
+
+def calculate_responsabilities_poisson_sparse(patterns, slices, responsabilities, scalings=None):
+    if not isinstance(patterns, dict):
+        raise ValueError("patterns must be a dictionary containing the keys: indcies, values and start_indices")
+    if ("indices" not in patterns or
+        "values" not in patterns or
+        "start_indices" not in patterns):
+        raise ValueError("patterns must contain the keys indcies, values and start_indices")
+    if len(responsabilities.shape) != 2: raise ValueError("responsabilities must have shape nrotations x npatterns")
+    if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != responsabilities.shape[1]+1:
+        raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
+    if len(patterns["indices"].shape) != 1 or len(patterns["values"].shape) != 1 or patterns["indices"].shape != patterns["values"].shape:
+        raise ValueError("indices and values must have the same shape")
+    number_of_patterns = len(patterns["start_indices"])-1
+    if len(slices.shape) != 3:
+        raise ValueError("slices must be a 3d array")
+    if slices.shape[0] != responsabilities.shape[0]:
+        raise ValueError("Responsabilities and slices indicate different number of orientations")
+    if scalings is not None and not (scalings.shape == responsabilities.shape or
+                                     (len(scalings.shape) == 1 or scalings.shape[0] == number_of_patterns)):
+        raise ValueError("Scalings must have the same shape as responsabilities")
+    
+    if (calculate_responsabilities_poisson_sparse.log_factorial_table is None or
+        len(calculate_responsabilities_poisson_sparse.log_factorial_table) <= patterns["values"].max()):
+        calculate_responsabilities_poisson_sparse.log_factorial_table = _log_factorial_table(patterns["values"].max())
+    
+    if (calculate_responsabilities_poisson_sparse.slice_sums is None or
+        len(calculate_responsabilities_poisson_sparse.slice_sums) != len(slices)):
+        calculate_responsabilities_poisson_sparse.slice_sums = cupy.empty(len(slices), dtype="float32")
+
+    number_of_rotations = len(slices)
+    number_of_patterns = len(patterns["start_indices"])-1
+    if scalings is None:
+        kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
+                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparse.slice_sums))
+        kernels["kernel_calculate_responsabilities_sparse"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
+                                                            (patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                             slices, slices.shape[2]*slices.shape[1], responsabilities,
+                                                             calculate_responsabilities_poisson_sparse.slice_sums,
+                                                             calculate_responsabilities_poisson_sparse.log_factorial_table))
+    elif len(scalings.shape) == 2:
+        kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
+                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparse.slice_sums))
+        kernels["kernel_calculate_responsabilities_sparse_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
+                                                                    (patterns["start_indices"], patterns["indices"], patterns["values"],
+                                                                     slices, slices.shape[2]*slices.shape[1],
+                                                                     scalings, responsabilities,
+                                                                     calculate_responsabilities_poisson_sparse.slice_sums,
+                                                                     calculate_responsabilities_poisson_sparse.log_factorial_table))
+    else:
+        kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
+                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparse.slice_sums))
+        kernels["kernel_calculate_responsabilities_sparse_per_pattern_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
+                                                                                (patterns["start_indices"], patterns["indices"],
+                                                                                 patterns["values"],
+                                                                                 slices, slices.shape[2]*slices.shape[1], scalings,
+                                                                                 responsabilities,
+                                                                                 calculate_responsabilities_poisson_sparse.slice_sums,
+                                                                                 calculate_responsabilities_poisson_sparse.log_factorial_table))
+calculate_responsabilities_poisson_sparse.log_factorial_table = None
+calculate_responsabilities_poisson_sparse.slice_sums = None
 
 
 def calculate_scaling_poisson(patterns, slices, scaling):
+    if isinstance(patterns, dict):
+        # patterns are spares
+        calculate_scaling_poisson_sparse(patterns, slices, scaling)
+    else:
+        calculate_scaling_poisson_dense(patterns, slices, scaling)
+
+        
+def calculate_scaling_poisson_dense(patterns, slices, scaling):
     if len(patterns.shape) != 3:
         raise ValueError("Patterns must be a 3D array")
     if len(slices.shape) != 3:
@@ -366,29 +402,11 @@ def calculate_scaling_poisson(patterns, slices, scaling):
     if slices.shape[1:] != patterns.shape[1:]:
         raise ValueError("Slices and patterns must be the same shape")
     if scaling.shape[0] != slices.shape[0] or scaling.shape[1] != patterns.shape[0]:
-        raise ValueError("scaling must have shape nrotations x npatterns")        
-    kernels["kernel_calculate_scaling_poisson"]((len(patterns), len(slices)), (_NTHREADS, ),
+        raise ValueError("scaling must have shape nrotations x npatterns")
+    number_of_patterns = len(patterns)
+    number_of_rotations = len(slices)
+    kernels["kernel_calculate_scaling_poisson"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                 (patterns, slices, scaling, slices.shape[0]*slices.shape[1]))
-
-
-def calculate_scaling_per_pattern_poisson(patterns, slices, responsabilities, scaling):
-    if len(patterns.shape) != 3:
-        raise ValueError("Patterns must be a 3D array")
-    if len(slices.shape) != 3:
-        raise ValueError("Slices must be a 3D array")
-    if len(scaling.shape) != 1:
-        raise ValueError("Slices must be a 1D array")
-    if len(responsabilities.shape) != 2:
-        raise ValueError("Slices must be a 2D array")
-    if slices.shape[1:] != patterns.shape[1:]:
-        raise ValueError("Slices and patterns must be the same shape")
-    if scaling.shape[0] != patterns.shape[0]:
-        raise ValueError("scaling must have same length as patterns")
-    if slices.shape[0] != responsabilities.shape[0] or patterns.shape[0] != responsabilities.shape[1]:
-        raise ValueError("Responsabilities must have shape nrotations x npatterns")
-    kernels["kernel_calculate_scaling_per_pattern_poisson"]((len(patterns), ), (_NTHREADS, ),
-                                                            (patterns, slices, responsabilities, scaling,
-                                                             slices.shape[1]*slices.shape[2], len(slices)))
 
 
 def calculate_scaling_poisson_sparse(patterns, slices, scaling):
@@ -408,12 +426,43 @@ def calculate_scaling_poisson_sparse(patterns, slices, scaling):
         raise ValueError("Slices must be a 2D array")
     number_of_patterns = len(patterns["start_indices"])-1
     if scaling.shape[0] != slices.shape[0] or scaling.shape[1] != number_of_patterns:
-        raise ValueError("scaling must have shape nrotations x npatterns")        
-    kernels["kernel_calculate_scaling_poisson_sparse"]((len(patterns), len(slices)), (_NTHREADS, ),
+        raise ValueError("scaling must have shape nrotations x npatterns")
+    number_of_rotations = len(slices)
+    kernels["kernel_calculate_scaling_poisson_sparse"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                        (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                         slices, scaling, slices.shape[1]*slices.shape[2]))
 
 
+def calculate_scaling_per_pattern_poisson(patterns, slices, scaling):
+    if isinstance(patterns, dict):
+        # patterns are spares
+        calculate_scaling_per_pattern_poisson_sparse(patterns, slices, scaling)
+    else:
+        calculate_scaling_per_pattern_poisson_dense(patterns, slices, scaling)
+
+    
+def calculate_scaling_per_pattern_poisson_dense(patterns, slices, responsabilities, scaling):
+    if len(patterns.shape) != 3:
+        raise ValueError("Patterns must be a 3D array")
+    if len(slices.shape) != 3:
+        raise ValueError("Slices must be a 3D array")
+    if len(scaling.shape) != 1:
+        raise ValueError("Slices must be a 1D array")
+    if len(responsabilities.shape) != 2:
+        raise ValueError("Slices must be a 2D array")
+    if slices.shape[1:] != patterns.shape[1:]:
+        raise ValueError("Slices and patterns must be the same shape")
+    if scaling.shape[0] != patterns.shape[0]:
+        raise ValueError("scaling must have same length as patterns")
+    if slices.shape[0] != responsabilities.shape[0] or patterns.shape[0] != responsabilities.shape[1]:
+        raise ValueError("Responsabilities must have shape nrotations x npatterns")
+    number_of_patterns = len(patterns)
+    number_of_rotations = len(slices)
+    kernels["kernel_calculate_scaling_per_pattern_poisson"]((number_of_patterns, ), (_NTHREADS, ),
+                                                            (patterns, slices, responsabilities, scaling,
+                                                             slices.shape[1]*slices.shape[2], number_of_rotations))
+
+    
 def calculate_scaling_per_pattern_poisson_sparse(patterns, slices, scaling):
     if not isinstance(patterns, dict):
         raise ValueError("patterns must be a dictionary containing the keys: indcies, values and start_indices")
@@ -434,7 +483,9 @@ def calculate_scaling_per_pattern_poisson_sparse(patterns, slices, scaling):
         raise ValueError("scaling must have same length as patterns")
     if slices.shape[0] != responsabilities.shape[0] or number_of_patterns != responsabilities.shape[1]:
         raise ValueError("Responsabilities must have shape nrotations x npatterns")
-    kernels["kernel_calculate_scaling_per_pattern_poisson_sparse"]((len(patterns), ), (_NTHREADS, ),
+    number_of_patterns = len(patterns["start_indices"]) - 1
+    number_of_rotations = len(slices)
+    kernels["kernel_calculate_scaling_per_pattern_poisson_sparse"]((number_of_patterns, ), (_NTHREADS, ),
                                                                    (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                                     slices, responsabilities, scaling, slices.shape[1]*slices.shape[2],
-                                                                    len(slices)))
+                                                                    number_of_rotations))

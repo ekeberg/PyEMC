@@ -38,7 +38,7 @@ extern "C" __global__ void kernel_calculate_scaling_poisson(const float *const p
 
 extern "C" __global__ void kernel_calculate_scaling_poisson_sparse(const int *const pattern_start_indices,
 								   const int *const pattern_indices,
-								   const float *const pattern_values,
+								   const int *const pattern_values,
 								   const float *const slices,
 								   float *const scaling,
 								   const int number_of_pixels) {
@@ -53,7 +53,7 @@ extern "C" __global__ void kernel_calculate_scaling_poisson_sparse(const int *co
   const int this_end_index = pattern_start_indices[index_pattern+1];
 
   float sum_slice = 0.;
-  float sum_pattern = 0.;
+  int sum_pattern = 0;
 
   for (int index = this_start_index+threadIdx.x; index < this_end_index; index += blockDim.x) {
     if (slice[pattern_indices[index]]) {
@@ -70,7 +70,7 @@ extern "C" __global__ void kernel_calculate_scaling_poisson_sparse(const int *co
   __shared__ float sum_slice_cache[NTHREADS];
   __shared__ float sum_pattern_cache[NTHREADS];  
   sum_slice_cache[threadIdx.x] = sum_slice;
-  sum_pattern_cache[threadIdx.x] = sum_pattern;
+  sum_pattern_cache[threadIdx.x] = (float) sum_pattern;
   inblock_reduce(sum_slice_cache);
   inblock_reduce(sum_pattern_cache);
 
@@ -78,7 +78,7 @@ extern "C" __global__ void kernel_calculate_scaling_poisson_sparse(const int *co
     if (sum_pattern_cache[0] > 0) {
       scaling[index_slice*number_of_patterns + index_pattern] = sum_slice_cache[0] / sum_pattern_cache[0];
     } else {
-      scaling[index_slice*number_of_patterns + index_pattern] = 1.;
+      scaling[index_slice*number_of_patterns + index_pattern] = 1.0;
     }
   }
 }
