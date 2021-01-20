@@ -69,11 +69,42 @@ def radial_average(image, mask=None):
     radial_sum[weight == 0] = numpy.nan
     return radial_sum        
 
+def init_model_radial_average_old(patterns, randomness=0.):
+    """Simple function to create a random start. The new array will have
+    a side similar to the second axis of the patterns"""
+
+    pattern_mean = patterns.mean(axis=0)
+    pattern_radial_average = radial_average(patterns.mean(axis=0))
+    side = patterns.shape[1]
+    x = numpy.arange(side) - side/2 + 0.5
+
+    r_int = numpy.int32(numpy.sqrt(x[:, numpy.newaxis, numpy.newaxis]**2 +
+                                   x[numpy.newaxis, :, numpy.newaxis]**2 +
+                                   x[numpy.newaxis, numpy.newaxis, :]**2))
+    r_int_copy = r_int.copy()
+    r_int[r_int >= len(pattern_radial_average)] = 0
+    
+    model = pattern_radial_average[numpy.int32(r_int)]
+    model *= 1. - randomness + 2. * randomness * numpy.random.random((side, )*3)
+    model[r_int_copy >= len(pattern_radial_average)] = -1.    
+    return model
+
+
 def init_model_radial_average(patterns, randomness=0.):
     """Simple function to create a random start. The new array will have
     a side similar to the second axis of the patterns"""
-    pattern_mean = patterns.mean(axis=0)
-    pattern_radial_average = radial_average(patterns.mean(axis=0))
+
+    patterns = patterns.copy()
+    patterns_weights = patterns >= 0.
+    patterns[~patterns_weights] = 0
+    patterns = patterns.sum(axis=0)
+    patterns_weights = patterns_weights.sum(axis=0)
+
+    pattern_radial_average = radial_average(patterns)
+    weight_radial_average = radial_average(patterns_weights)
+    pattern_radial_average[weight_radial_average > 0] /= weight_radial_average[weight_radial_average > 0]
+    pattern_radial_average[weight_radial_average <= 0] = -1.
+    
     side = patterns.shape[1]
     x = numpy.arange(side) - side/2 + 0.5
 
