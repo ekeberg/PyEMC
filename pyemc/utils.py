@@ -35,7 +35,7 @@ def read_sparse_data(file_name, file_key=None, start_index=0, end_index=-1, outp
         #             "shape": tuple(group["shape"][...])}
         return patterns
 
-def read_dense_data(file_name, file_key=None, start_index=0, end_index=-1, output_type="numpy"):
+def read_dense_data(file_name, file_key=None, data_slice = numpy.s_[::],output_type="numpy"):
     if output_type.lower() == "numpy":
         output_module = numpy
     elif output_type.lower() == "cupy":
@@ -44,7 +44,7 @@ def read_dense_data(file_name, file_key=None, start_index=0, end_index=-1, outpu
         raise ValueError(f"Argument output_array must be either numpy or cupy. Can't recognize: {output_array}")
 
     with h5py.File(file_name, "r") as file_handle:
-        patterns = output_module.asarray(file_handle[file_key][start_index:end_index, ...], dtype="int32")
+        patterns = output_module.asarray(file_handle[file_key][data_slice], dtype="int32")
     return patterns
 
 def radial_average(image, mask=None):
