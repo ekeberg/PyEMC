@@ -62,28 +62,6 @@ def chunks(number_of_rotations, chunk_size):
     for this_indices_cpu, this_indices_gpu in zip(indices_cpu, indices_gpu):
         yield this_indices_cpu, this_indices_gpu
 
-def radial_average(image, mask=None):
-    """Calculates the radial average of an array of any shape,
-    the center is assumed to be at the physical center."""
-    if mask is None:
-        mask = numpy.ones(image.shape, dtype='bool8')
-    else:
-        mask = numpy.bool8(mask)
-    axis_values = [numpy.arange(l) - l/2. + 0.5 for l in image.shape]
-    radius = numpy.zeros((image.shape[-1]))
-    for i in range(len(image.shape)):
-        radius = radius + (axis_values[-(1+i)][(slice(0, None), ) + (numpy.newaxis, )*i])**2
-    radius = numpy.int32(numpy.sqrt(radius))
-    number_of_bins = radius[mask].max() + 1
-    radial_sum = numpy.zeros(number_of_bins)
-    weight = numpy.zeros(number_of_bins)
-    for value, this_radius in zip(image[mask], radius[mask]):
-        radial_sum[this_radius] += value
-        weight[this_radius] += 1.
-    radial_sum[weight > 0] /= weight[weight > 0]
-    radial_sum[weight == 0] = numpy.nan
-    return radial_sum        
-
 def import_cuda_file(file_name, kernel_names):
     # nthreads = 128
     threads_code = f"const int NTHREADS = {_NTHREADS};"
@@ -469,3 +447,26 @@ def calculate_scaling_per_pattern_poisson_sparse(patterns, slices, scaling):
                                                                    (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                                     slices, responsabilities, scaling, slices.shape[1]*slices.shape[2],
                                                                     number_of_rotations))
+
+    
+def assemble_model(patterns, rotations, coordinates, shape=None):
+    slice_weights = cupy.ones(len(rotations), dtype="float32")
+
+    if isinstance(patterns, dict):
+        raise NotImplementedError("assemble_model does not support sparse data")
+    
+    patterns = cupy.asarray(patterns, dtype="float32")
+
+    if shape is None:
+        shape = ((patterns.shape[1] + patterns.shape[2])//2, )*3
+    model = cupy.zeros(shape, dtype="float32")
+    model_weights = cupy.zeros(shape, dtype="float32")
+
+    insert_slices(model, model_weights, patterns,
+                  slice_weights, rotations, coordinates)
+
+    bad_indices = model_weights == 0
+    model /= model_weights
+    model[bad_indices] = -1
+
+    return model
