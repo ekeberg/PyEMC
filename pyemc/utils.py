@@ -2,6 +2,52 @@ import cupy
 import h5py
 import numpy
 
+
+def ewald_coordinates(image_shape, wavelength, detector_distance, pixel_size,
+                      edge_distance=None, output_type="cupy"):
+    if edge_distance is None:
+        edge_distance = image_shape[0]/2.
+    x_pixels_1d = numpy.arange(image_shape[1], dtype="float32") - image_shape[1]/2. + 0.5
+    y_pixels_1d = numpy.arange(image_shape[0], dtype="float32") - image_shape[0]/2. + 0.5
+    y_pixels, x_pixels = numpy.meshgrid(y_pixels_1d, x_pixels_1d, indexing="ij")
+    x_meters = x_pixels*pixel_size
+    y_meters = y_pixels*pixel_size
+    radius_meters = numpy.sqrt(x_meters**2 + y_meters**2)
+
+    scattering_angle = numpy.arctan(radius_meters / detector_distance)
+    z = -1./wavelength*(1. - numpy.cos(scattering_angle))
+    radius_fourier = numpy.sqrt(1./wavelength**2 - (1./wavelength - abs(z))**2)
+
+    x = x_meters * radius_fourier / radius_meters
+    y = y_meters * radius_fourier / radius_meters
+
+    x[radius_meters == 0.] = 0.
+    y[radius_meters == 0.] = 0.
+
+    output_coordinates = numpy.zeros((3, ) + image_shape)
+    output_coordinates[0, :, :] = x
+    output_coordinates[1, :, :] = y
+    output_coordinates[2, :, :] = z
+
+    # Rescale so that edge pixels match.
+    furthest_edge_coordinate = numpy.sqrt(x[0, image_shape[1]//2]**2 + y[0, image_shape[1]//2]**2 + z[0, image_shape[1]//2]**2)
+    rescale_factor = edge_distance/furthest_edge_coordinate
+    output_coordinates *= rescale_factor
+
+    if output_type.lower() == "numpy":
+        output_module = numpy
+    elif output_type.lower() == "cupy":
+        if not cupy.cuda.is_available():
+            warnings.warn("in function ewald_coordinates: Trying to use output_type cupy with no available CUDA devices. Reverting to numpy")
+            output_module = numpy
+        else:
+            output_module = cupy
+
+    return output_module.asarray(output_coordinates, dtype="float32")
+    #return cupy.asarray(output_coordinates, dtype="float32")
+
+
+
 def read_sparse_data(file_name, file_key=None, start_index=0, end_index=-1, output_type="numpy"):
     with h5py.File(file_name, "r") as file_handle:
         if file_key is None:
@@ -118,3 +164,17 @@ def init_model_radial_average(patterns, randomness=0.):
     model *= 1. - randomness + 2. * randomness * numpy.random.random((side, )*3)
     model[r_int_copy >= len(pattern_radial_average)] = -1.    
     return model
+
+
+def chunks(number_of_rotations, chunk_size):
+    """Generator for slices to chunk up the data"""
+    chunk_starts = numpy.arange(0, number_of_rotations, chunk_size)
+    chunk_ends = chunk_starts + chunk_size
+    chunk_ends[-1] = number_of_rotations
+    chunk_sizes = chunk_ends - chunk_starts
+    indices_cpu = [slice(this_chunk_start, this_chunk_end) for this_chunk_start, this_chunk_end
+                    in zip(chunk_starts, chunk_ends)]
+    indices_gpu = [slice(None, this_chunk_end-this_chunk_start) for this_chunk_start, this_chunk_end
+                     in zip(chunk_starts, chunk_ends)]
+    for this_indices_cpu, this_indices_gpu in zip(indices_cpu, indices_gpu):
+        yield this_indices_cpu, this_indices_gpu
