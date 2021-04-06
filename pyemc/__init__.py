@@ -7,4 +7,4 @@ else:
     warnings.warn("No CUDA devicec found. Can only use cupy.utils functions")
 
 from .utils import *
-from . import mpi
+# from . import mpi
