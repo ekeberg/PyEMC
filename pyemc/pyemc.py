@@ -10,6 +10,7 @@ MAX_PHOTON_COUNT = 200000
 _INTERPOLATION = {"nearest_neighbour": 0,
                   "linear": 1}
 
+
 def type_checked(*type_args):
     def decorator(func):
         func_signature = inspect.signature(func)
@@ -49,16 +50,33 @@ def type_checked(*type_args):
             return func(*args)
         return new_func
     return decorator
-    
-def _log_factorial_table(max_value):
-    if max_value > MAX_PHOTON_COUNT:
-        raise ValueError("Poisson values can not be used with photon counts higher than {0}".format(MAX_PHOTON_COUNT))
-    log_factorial_table = numpy.zeros(int(max_value+1), dtype="float32")
-    log_factorial_table[0] = 0.
-    for i in range(1, int(max_value+1)):
-        log_factorial_table[i] = log_factorial_table[i-1] + numpy.log(i)
-    return cupy.asarray(log_factorial_table, dtype="float32")
 
+
+# def _log_factorial_table(max_value):
+#     if max_value > MAX_PHOTON_COUNT:
+#         raise ValueError("Poisson values can not be used with photon counts higher than {0}".format(MAX_PHOTON_COUNT))
+#     log_factorial_table = numpy.zeros(int(max_value+1), dtype="float32")
+#     log_factorial_table[0] = 0.
+#     for i in range(1, int(max_value+1)):
+#         log_factorial_table[i] = log_factorial_table[i-1] + numpy.log(i)
+#     return cupy.asarray(log_factorial_table, dtype="float32")
+
+class LogFactorialTable:
+    def __init__(self, maximum=100):
+        self._create_table(maximum)
+        
+    def _create_table(self, maximum):
+        table = numpy.zeros(int(maximum+1), dtype="float32")
+        table[0] = 0.
+        for i in range(1, int(maximum+1)):
+            table[i] = table[i-1] + numpy.log(i)
+        self._table = cupy.asarray(table, dtype="float32")
+
+    def table(self, maximum):
+        if len(self._table) <= maximum:
+            self._create_table(maximum)
+        return self._table
+log_factorial = LogFactorialTable()
 
 def import_cuda_file(file_name, kernel_names):
     # nthreads = 128
@@ -80,10 +98,8 @@ def import_cuda_file(file_name, kernel_names):
         kernels[this_name] = module.get_function(this_name)
     return kernels
 
+
 def import_kernels():
-    # emc_kernels = import_cuda_file("emc_cuda.cu",
-    #                                ["kernel_expand_model",
-    #                                 "kernel_insert_slices"])
     emc_kernels = import_cuda_file("emc_cuda.cu",
                                    ["kernel_expand_model",
                                     "kernel_insert_slices",
@@ -116,6 +132,7 @@ def import_kernels():
     kernels = {**emc_kernels, **respons_kernels, **scaling_kernels, **slices_kernels}
     return kernels
 
+
 def set_nthreads(nthreads):
     global _NTHREADS, kernels
     _NTHREADS = nthreads
@@ -123,16 +140,9 @@ def set_nthreads(nthreads):
 
 kernels = import_kernels()
 
+
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32)
 def expand_model(model, slices, rotations, coordinates):
-    # if not _is_float(model):
-    #     raise TypeError(f"argument model to expand_model() must be of dtype float32. Not {model.dtype}.")
-    # if not _is_float(slices):
-    #     raise TypeError(f"argument slices to expand_model() must be of dtype float32. Not {slices.dtype}.")
-    # if not _is_float(rotations):
-    #     raise TypeError(f"argument rotations to expand_model() must be of dtype float32. Not {rotations.dtype}.")
-    # if not _is_float(coordinates):
-    #     raise TypeError(f"argument model to expand_model() must be of dtype float32. Not {coordinates.dtype}.")
     if len(slices) != len(rotations):
         raise ValueError("Slices and rotations must be of the same length.")
     if len(model.shape) != 3:
@@ -150,20 +160,9 @@ def expand_model(model, slices, rotations, coordinates):
                                     slices, slices.shape[2], slices.shape[1],
                                     rotations, coordinates))
 
+
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32, cupy.float32, cupy.float32, None)
 def insert_slices(model, model_weights, slices, slice_weights, rotations, coordinates, interpolation="linear"):
-    # if not _is_float(model):
-    #     raise TypeError("argument model to insert_slices() must be of dtype float32")
-    # if not _is_float(model_weights):
-    #     raise TypeError("argument model_weights to expand_model() must be of dtype float32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to expand_model() must be of dtype float32")
-    # if not _is_float(slice_weights):
-    #     raise TypeError("argument slice_weights to expand_model() must be of dtype float32")
-    # if not _is_float(rotations):
-    #     raise TypeError("argument rotations to expand_model() must be of dtype float32")
-    # if not _is_float(coordinates):
-    #     raise TypeError("argument coordinates to expand_model() must be of dtype float32")
     if len(slices) != len(rotations):
         raise ValueError("slices and rotations must be of the same length.")
     if len(slices) != len(slice_weights):
@@ -198,16 +197,9 @@ def update_slices(slices, patterns, responsabilities, scalings=None):
         # data is dense
         update_slices_dense(slices, patterns, responsabilities, scalings)
 
+
 @type_checked(cupy.float32, "dense", cupy.float32, cupy.float32)
 def update_slices_dense(slices, patterns, responsabilities, scalings=None):
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to update_slices_dense() must be of dtype float32")
-    # if not _is_int(patterns):
-    #     raise TypeError("argument patterns to update_slices_dense() must be of dtype int32")
-    # if not _is_float(responsabilities):
-    #     raise TypeError("argument responsabilities to update_slices_dense() must be of dtype float32")
-    # if scalings is not None and not _is_float(scalings):
-    #     raise TypeError("Optional argument scalings to update_slices_dense() must be of dtype float32")
     if len(patterns.shape) != 3: raise ValueError("patterns must be a 3D array")
     if len(slices.shape) != 3: raise ValueError("slices must be a 3D array.")
     if patterns.shape[1:] != slices.shape[1:]: raise ValueError("patterns and images must be the same size 2D images")
@@ -232,20 +224,9 @@ def update_slices_dense(slices, patterns, responsabilities, scalings=None):
                                                             (slices, patterns, patterns.shape[0], patterns.shape[2]*patterns.shape[1],
                                                              responsabilities, scalings))
 
+
 @type_checked(cupy.float32, "sparse", cupy.float32, cupy.float32, None)
 def update_slices_sparse(slices, patterns, responsabilities, scalings=None, resp_threshold=0.):
-    # if (not "indices" in patterns or
-    #     not "values" in patterns or
-    #     not "start_indices" in patterns):
-    #     raise ValueError("patterns must contain the keys indcies, values and start_indices")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to update_slices_sparse() must be of dtype float32")
-    # if not _is_int(patterns["indices"]):
-    #     raise TypeError("argument patterns[indices] to update_slices_sparse() must be of dtype int32")
-    # if not _is_int(patterns["values"]):
-    #     raise TypeError("argument patterns[values] to update_slices_sparse() must be of dtype int32")
-    # if not _is_int(patterns["start_indices"]):
-    #     raise TypeError("argument patterns[start_indices] to update_slices_sparse() must be of dtype int32")
     if len(responsabilities.shape) != 2: raise ValueError("responsabilities must have shape nrotations x npatterns")
     if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != responsabilities.shape[1]+1:
         raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
@@ -286,26 +267,9 @@ def update_slices_sparse(slices, patterns, responsabilities, scalings=None, resp
         kernels["kernel_normalize_slices"]((number_of_rotations, ), (_NTHREADS, ),
                                            (slices, responsabilities, number_of_pixels, number_of_patterns))
 
+
 @type_checked(cupy.float32, "sparser", cupy.float32, cupy.float32, None)
 def update_slices_sparser(slices, patterns, responsabilities, scalings=None, resp_threshold=0.):
-    # if (not "indices" in patterns or
-    #     not "values" in patterns or
-    #     not "start_indices" in patterns or
-    #     not "ones_indices" in patterns or
-    #     not "ones_start_indices" in patterns):
-    #     raise ValueError("patterns must contain the keys indcies, values and start_indices")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to update_slices_sparser() must be of dtype float32")
-    # if not _is_int(patterns["indices"]):
-    #     raise TypeError("argument patterns[indices] to update_slices_sparser() must be of dtype int32")
-    # if not _is_int(patterns["values"]):
-    #     raise TypeError("argument patterns[values] to update_slices_sparser() must be of dtype int32")
-    # if not _is_int(patterns["start_indices"]):
-    #     raise TypeError("argument patterns[start_indices] to update_slices_sparser() must be of dtype int32")
-    # if not _is_int(patterns["ones_indices"]):
-    #     raise TypeError("argument patterns[ones_indices] to update_slices_sparser() must be of dtype int32")
-    # if not _is_int(patterns["ones_start_indices"]):
-    #     raise TypeError("argument patterns[ones_start_indices] to update_slices_sparser() must be of dtype int32")
     if len(responsabilities.shape) != 2: raise ValueError("responsabilities must have shape nrotations x npatterns")
     if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != responsabilities.shape[1]+1:
         raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
@@ -350,7 +314,8 @@ def update_slices_sparser(slices, patterns, responsabilities, scalings=None, res
         #                                                             number_of_patterns, responsabilities, scalings))
         # kernels["kernel_normalize_slices"]((number_of_rotations, ), (_NTHREADS, ),
         #                                    (slices, responsabilities, number_of_pixels, number_of_patterns))
-        
+
+
 def calculate_responsabilities_poisson(patterns, slices, responsabilities, scalings=None):
     if isinstance(patterns, dict):
         # sparse data
@@ -362,67 +327,47 @@ def calculate_responsabilities_poisson(patterns, slices, responsabilities, scali
         # dense data
         calculate_responsabilities_poisson_dense(patterns, slices, responsabilities, scalings)
 
+
 @type_checked("dense", cupy.float32, cupy.float32, cupy.float32)
 def calculate_responsabilities_poisson_dense(patterns, slices, responsabilities, scalings=None):
-    # if not _is_int(patterns):
-    #     raise TypeError("argument patterns to calculate_responsabilities_poisson_dense() must be of dtype int32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to calculate_responsabilities_poisson_dense() must be of dtype float32")
-    # if not _is_float(responsabilities):
-    #     raise TypeError("argument responsabilities to calculate_responsabilities_poisson_dense() must be of dtype float32")
-    # if scalings is not None and not _is_float(scalings):
-    #     raise TypeError("optional argument scalings to calculate_responsabilities_poisson_dense() must be of dtype float32")
     if len(patterns.shape) != 3: raise ValueError("patterns must be a 3D array")
     if len(slices.shape) != 3: raise ValueError("slices must be a 3D array")
     if patterns.shape[1:] != slices.shape[1:]: raise ValueError("patterns and images must be the same size 2D images")
     if len(responsabilities.shape) != 2 or slices.shape[0] != responsabilities.shape[0] or patterns.shape[0] != responsabilities.shape[1]:
         raise ValueError("responsabilities must have shape nrotations x npatterns")
-    if (calculate_responsabilities_poisson_dense.log_factorial_table is None or
-        len(calculate_responsabilities_poisson_dense.log_factorial_table) <= patterns.max()):
-        calculate_responsabilities_poisson_dense.log_factorial_table = _log_factorial_table(patterns.max())
+    # if (calculate_responsabilities_poisson_dense.log_factorial_table is None or
+    #     len(calculate_responsabilities_poisson_dense.log_factorial_table) <= patterns.max()):
+    #     calculate_responsabilities_poisson_dense.log_factorial_table = _log_factorial_table(patterns.max())
     if scalings is not None and not (scalings.shape == responsabilities.shape or
                                      (len(scalings.shape) == 1 or scalings.shape[0] == patterns.shape[0])):
         raise ValueError("Scalings must have the same shape as responsabilities")
+    patterns_max = patterns.max()
     number_of_patterns = len(patterns)
     number_of_rotations = len(slices)
     if scalings is None:
         kernels["kernel_calculate_responsabilities_poisson"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                              (patterns, slices, slices.shape[2]*slices.shape[1], responsabilities,
-                                                              calculate_responsabilities_poisson_dense.log_factorial_table))
+                                                              log_factorial.table(patterns_max)))
+                                                              # calculate_responsabilities_poisson_dense.log_factorial_table))
     elif len(scalings.shape) == 2:
         # Scaling per pattern and slice pair
         kernels["kernel_calculate_responsabilities_poisson_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                                      (patterns, slices, slices.shape[2]*slices.shape[1],
                                                                       scalings, responsabilities,
-                                                                      calculate_responsabilities_poisson_dense.log_factorial_table))
+                                                                      log_factorial.table(patterns_max)))
+                                                                      # calculate_responsabilities_poisson_dense.log_factorial_table))
     else:
         # Scaling per pattern
         kernels["kernel_calculate_responsabilities_poisson_per_pattern_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                                                  (patterns, slices, slices.shape[2]*slices.shape[1],
                                                                                   scalings, responsabilities,
-                                                                                  calculate_responsabilities_poisson_dense.log_factorial_table))
-calculate_responsabilities_poisson_dense.log_factorial_table = None
+                                                                                  log_factorial.table(patterns_max)))
+                                                                                  # calculate_responsabilities_poisson_dense.log_factorial_table))
+# calculate_responsabilities_poisson_dense.log_factorial_table = None
+
 
 @type_checked("sparse", cupy.float32, cupy.float32, cupy.float32)
 def calculate_responsabilities_poisson_sparse(patterns, slices, responsabilities, scalings=None):
-    # if not isinstance(patterns, dict):
-    #     raise ValueError("patterns must be a dictionary containing the keys: indcies, values and start_indices")
-    # if ("indices" not in patterns or
-    #     "values" not in patterns or
-    #     "start_indices" not in patterns):
-    #     raise ValueError("patterns must contain the keys indcies, values and start_indices")
-    # if not _is_int(patterns["indices"]):
-    #     raise TypeError("argument patterns[indices] to calculate_responsabilities_poisson_sparse() must be of dtype int32")
-    # if not _is_int(patterns["values"]):
-    #     raise TypeError("argument patterns[values] to calculate_responsabilities_poisson_sparse() must be of dtype int32")
-    # if not _is_int(patterns["start_indices"]):
-    #     raise TypeError("argument patterns[start_indices] to calculate_responsabilities_poisson_sparse() must be of dtype int32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to calculate_responsabilities_poisson_sparse() must be of dtype float32")
-    # if not _is_float(responsabilities):
-    #     raise TypeError("argument responsabilities to calculate_responsabilities_poisson_sparse() must be of dtype float32")
-    # if scalings is not None and not _is_float(scalings):
-    #     raise TypeError("optional argument scalings to calculate_responsabilities_poisson_sparse() must be of dtype float32")
     if len(responsabilities.shape) != 2: raise ValueError("responsabilities must have shape nrotations x npatterns")
     if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != responsabilities.shape[1]+1:
         raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
@@ -437,14 +382,14 @@ def calculate_responsabilities_poisson_sparse(patterns, slices, responsabilities
                                      (len(scalings.shape) == 1 or scalings.shape[0] == number_of_patterns)):
         raise ValueError("Scalings must have the same shape as responsabilities")
     
-    if (calculate_responsabilities_poisson_sparse.log_factorial_table is None or
-        len(calculate_responsabilities_poisson_sparse.log_factorial_table) <= patterns["values"].max()):
-        calculate_responsabilities_poisson_sparse.log_factorial_table = _log_factorial_table(patterns["values"].max())
+    # if (calculate_responsabilities_poisson_sparse.log_factorial_table is None or
+    #     len(calculate_responsabilities_poisson_sparse.log_factorial_table) <= patterns["values"].max()):
+    #     calculate_responsabilities_poisson_sparse.log_factorial_table = _log_factorial_table(patterns["values"].max())
     
     if (calculate_responsabilities_poisson_sparse.slice_sums is None or
         len(calculate_responsabilities_poisson_sparse.slice_sums) != len(slices)):
         calculate_responsabilities_poisson_sparse.slice_sums = cupy.empty(len(slices), dtype="float32")
-
+    patterns_max = patterns["values"].max()
     number_of_rotations = len(slices)
     number_of_patterns = len(patterns["start_indices"])-1
     if scalings is None:
@@ -454,7 +399,8 @@ def calculate_responsabilities_poisson_sparse(patterns, slices, responsabilities
                                                             (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                              slices, slices.shape[2]*slices.shape[1], responsabilities,
                                                              calculate_responsabilities_poisson_sparse.slice_sums,
-                                                             calculate_responsabilities_poisson_sparse.log_factorial_table))
+                                                             log_factorial.table(patterns_max)))
+                                                             # calculate_responsabilities_poisson_sparse.log_factorial_table))
     elif len(scalings.shape) == 2:
         kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
                                      (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparse.slice_sums))
@@ -463,7 +409,8 @@ def calculate_responsabilities_poisson_sparse(patterns, slices, responsabilities
                                                                      slices, slices.shape[2]*slices.shape[1],
                                                                      scalings, responsabilities,
                                                                      calculate_responsabilities_poisson_sparse.slice_sums,
-                                                                     calculate_responsabilities_poisson_sparse.log_factorial_table))
+                                                                     log_factorial.table(patterns_max)))
+                                                                     # calculate_responsabilities_poisson_sparse.log_factorial_table))
     else:
         kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
                                      (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparse.slice_sums))
@@ -473,36 +420,14 @@ def calculate_responsabilities_poisson_sparse(patterns, slices, responsabilities
                                                                                  slices, slices.shape[2]*slices.shape[1], scalings,
                                                                                  responsabilities,
                                                                                  calculate_responsabilities_poisson_sparse.slice_sums,
-                                                                                 calculate_responsabilities_poisson_sparse.log_factorial_table))
-calculate_responsabilities_poisson_sparse.log_factorial_table = None
+                                                                                 log_factorial.table(patterns_max)))
+                                                                                 # calculate_responsabilities_poisson_sparse.log_factorial_table))
+# calculate_responsabilities_poisson_sparse.log_factorial_table = None
 calculate_responsabilities_poisson_sparse.slice_sums = None
+
 
 @type_checked("sparser", cupy.float32, cupy.float32, cupy.float32)
 def calculate_responsabilities_poisson_sparser(patterns, slices, responsabilities, scalings=None):
-    # if not isinstance(patterns, dict):
-    #     raise ValueError("patterns must be a dictionary containing the keys: indcies, values and start_indices")
-    # if ("indices" not in patterns or
-    #     "values" not in patterns or
-    #     "start_indices" not in patterns or
-    #     "ones_indices" not in patterns or
-    #     "ones_start_indices" not in patterns):
-    #     raise ValueError("patterns must contain the keys indcies, values and start_indices")
-    # if not _is_int(patterns["indices"]):
-    #     raise TypeError("argument patterns[indices] to calculate_responsabilities_poisson_sparser() must be of dtype int32")
-    # if not _is_int(patterns["values"]):
-    #     raise TypeError("argument patterns[values] to calculate_responsabilities_poisson_sparser() must be of dtype int32")
-    # if not _is_int(patterns["start_indices"]):
-    #     raise TypeError("argument patterns[start_indices] to calculate_responsabilities_poisson_sparser() must be of dtype int32")
-    # if not _is_int(patterns["ones_indices"]):
-    #     raise TypeError("argument patterns[ones_indices] to calculate_responsabilities_poisson_sparser() must be of dtype int32")
-    # if not _is_int(patterns["ones_start_indices"]):
-    #     raise TypeError("argument patterns[ones_start_indices] to calculate_responsabilities_poisson_sparser() must be of dtype int32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to calculate_responsabilities_poisson_sparser() must be of dtype float32")
-    # if not _is_float(responsabilities):
-    #     raise TypeError("argument responsabilities to calculate_responsabilities_poisson_sparser() must be of dtype float32")
-    # if scalings is not None and not _is_float(scalings):
-    #     raise TypeError("optional argument scalings to calculate_responsabilities_poisson_sparser() must be of dtype float32")
     if len(responsabilities.shape) != 2: raise ValueError("responsabilities must have shape nrotations x npatterns")
     if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != responsabilities.shape[1]+1:
         raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
@@ -519,14 +444,15 @@ def calculate_responsabilities_poisson_sparser(patterns, slices, responsabilitie
                                      (len(scalings.shape) == 1 or scalings.shape[0] == number_of_patterns)):
         raise ValueError("Scalings must have the same shape as responsabilities")
     
-    if (calculate_responsabilities_poisson_sparser.log_factorial_table is None or
-        len(calculate_responsabilities_poisson_sparser.log_factorial_table) <= patterns["values"].max()):
-        calculate_responsabilities_poisson_sparser.log_factorial_table = _log_factorial_table(patterns["values"].max())
+    # if (calculate_responsabilities_poisson_sparser.log_factorial_table is None or
+    #     len(calculate_responsabilities_poisson_sparser.log_factorial_table) <= patterns["values"].max()):
+    #     calculate_responsabilities_poisson_sparser.log_factorial_table = _log_factorial_table(patterns["values"].max())
     
     if (calculate_responsabilities_poisson_sparser.slice_sums is None or
         len(calculate_responsabilities_poisson_sparser.slice_sums) != len(slices)):
         calculate_responsabilities_poisson_sparser.slice_sums = cupy.empty(len(slices), dtype="float32")
 
+    patterns_max = patterns["values"].max()
     number_of_rotations = len(slices)
     number_of_patterns = len(patterns["start_indices"])-1
     if scalings is None:
@@ -537,7 +463,8 @@ def calculate_responsabilities_poisson_sparser(patterns, slices, responsabilitie
                                                               patterns["ones_start_indices"], patterns["ones_indices"],
                                                               slices, slices.shape[2]*slices.shape[1], responsabilities,
                                                               calculate_responsabilities_poisson_sparser.slice_sums,
-                                                              calculate_responsabilities_poisson_sparser.log_factorial_table))
+                                                              log_factorial.table(patterns_max)))
+                                                              # calculate_responsabilities_poisson_sparser.log_factorial_table))
     elif len(scalings.shape) == 2:
         kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
                                      (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparser.slice_sums))
@@ -547,7 +474,8 @@ def calculate_responsabilities_poisson_sparser(patterns, slices, responsabilitie
                                                                       slices, slices.shape[2]*slices.shape[1],
                                                                       scalings, responsabilities,
                                                                       calculate_responsabilities_poisson_sparser.slice_sums,
-                                                                      calculate_responsabilities_poisson_sparser.log_factorial_table))
+                                                                      log_factorial.table(patterns_max)))
+                                                                      # calculate_responsabilities_poisson_sparser.log_factorial_table))
     else:
         raise NotImplementedError("Can't use per pattern scaling together with sparser format.")
         # kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
@@ -559,7 +487,7 @@ def calculate_responsabilities_poisson_sparser(patterns, slices, responsabilitie
         #                                                                          responsabilities,
         #                                                                          calculate_responsabilities_poisson_sparser.slice_sums,
         #                                                                          calculate_responsabilities_poisson_sparser.log_factorial_table))
-calculate_responsabilities_poisson_sparser.log_factorial_table = None
+# calculate_responsabilities_poisson_sparser.log_factorial_table = None
 calculate_responsabilities_poisson_sparser.slice_sums = None
 
 
@@ -573,14 +501,9 @@ def calculate_scaling_poisson(patterns, slices, scaling):
     else:
         calculate_scaling_poisson_dense(patterns, slices, scaling)
 
+
 @type_checked("dense", cupy.float32, cupy.float32)
 def calculate_scaling_poisson_dense(patterns, slices, scaling):
-    # if not _is_int(patterns):
-    #     raise TypeError("argument patterns to calculate_scaling_poisson_dense() must be of dtype int32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to calculate_scaling_poisson_dense() must be of dtype float32")
-    # if not _is_float(scalings):
-    #     raise TypeError("argument scaling to calculate_scaling_poisson_dense() must be of dtype float32")
     if len(patterns.shape) != 3:
         raise ValueError("Patterns must be a 3D array")
     if len(slices.shape) != 3:
@@ -598,22 +521,6 @@ def calculate_scaling_poisson_dense(patterns, slices, scaling):
 
 @type_checked("sparse", cupy.float32, cupy.float32)
 def calculate_scaling_poisson_sparse(patterns, slices, scaling):
-    # if not isinstance(patterns, dict):
-    #     raise ValueError("patterns must be a dictionary containing the keys: indcies, values and start_indices")
-    # if ("indices" not in patterns or
-    #     "values" not in patterns or
-    #     "start_indices" not in patterns):
-    #     raise ValueError("patterns must contain the keys indcies, values and start_indices")
-    # if not _is_int(patterns["indices"]):
-    #     raise TypeError("argument patterns[indices] to calculate_scaling_poisson_sparse() must be of dtype int32")
-    # if not _is_int(patterns["values"]):
-    #     raise TypeError("argument patterns[values] to calculate_scaling_poisson_sparse() must be of dtype int32")
-    # if not _is_int(patterns["start_indices"]):
-    #     raise TypeError("argument patterns[start_indices] to calculate_scaling_poisson_sparse() must be of dtype int32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to calculate_scaling_poisson_sparse() must be of dtype float32")
-    # if not _is_float(scaling):
-    #     raise TypeError("argument scaling to calculate_scaling_poisson_sparse() must be of dtype float32")
     if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != scaling.shape[1]+1:
         raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
     if len(patterns["indices"].shape) != 1 or len(patterns["values"].shape) != 1 or patterns["indices"].shape != patterns["values"].shape:
@@ -630,30 +537,9 @@ def calculate_scaling_poisson_sparse(patterns, slices, scaling):
                                                        (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                         slices, scaling, slices.shape[1]*slices.shape[2]))
 
+
 @type_checked("sparser", cupy.float32, cupy.float32)
 def calculate_scaling_poisson_sparser(patterns, slices, scaling):
-    # if not isinstance(patterns, dict):
-    #     raise ValueError("patterns must be a dictionary containing the keys: indcies, values and start_indices")
-    # if ("indices" not in patterns or
-    #     "values" not in patterns or
-    #     "start_indices" not in patterns or
-    #     "ones_indices" not in patterns or
-    #     "ones_start_indices" not in patterns):
-    #     raise ValueError("patterns must contain the keys indcies, values and start_indices")
-    # if not _is_int(patterns["indices"]):
-    #     raise TypeError("argument patterns[indices] to calculate_scaling_poisson_sparser() must be of dtype int32")
-    # if not _is_int(patterns["values"]):
-    #     raise TypeError("argument patterns[values] to calculate_scaling_poisson_sparser() must be of dtype int32")
-    # if not _is_int(patterns["start_indices"]):
-    #     raise TypeError("argument patterns[start_indices] to calculate_scaling_poisson_sparser() must be of dtype int32")
-    # if not _is_int(patterns["ones_indices"]):
-    #     raise TypeError("argument patterns[ones_indices] to calculate_scaling_poisson_sparser() must be of dtype int32")
-    # if not _is_int(patterns["ones_start_indices"]):
-    #     raise TypeError("argument patterns[ones_start_indices] to calculate_scaling_poisson_sparser() must be of dtype int32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to calculate_scaling_poisson_sparser() must be of dtype float32")
-    # if not _is_float(scaling):
-    #     raise TypeError("argument scaling to calculate_scaling_poisson_sparser() must be of dtype float32")
     if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != scaling.shape[1]+1:
         raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
     if len(patterns["ones_start_indices"].shape) != 1 or patterns["ones_start_indices"].shape[0] != scaling.shape[1]+1:
@@ -686,14 +572,6 @@ def calculate_scaling_per_pattern_poisson(patterns, slices, scaling):
 
 @type_checked("dense", cupy.float32, cupy.float32, cupy.float32)    
 def calculate_scaling_per_pattern_poisson_dense(patterns, slices, responsabilities, scaling):
-    # if not _is_int(patterns):
-    #     raise TypeError("argument patterns to calculate_scaling_per_pattern_poisson_dense() must be of dtype int32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to calculate_scaling_per_pattern_poisson_dense() must be of dtype float32")
-    # if not _is_float(responsabilities):
-    #     raise TypeError("argument responsabilities to calculate_scaling_per_pattern_poisson_dense() must be of dtype float32")
-    # if not _is_float(scaling):
-    #     raise TypeError("argument scaling to calculate_scaling_per_pattern_poisson_dense() must be of dtype float32")
     if len(patterns.shape) != 3:
         raise ValueError("Patterns must be a 3D array")
     if len(slices.shape) != 3:
@@ -714,24 +592,9 @@ def calculate_scaling_per_pattern_poisson_dense(patterns, slices, responsabiliti
                                                             (patterns, slices, responsabilities, scaling,
                                                              slices.shape[1]*slices.shape[2], number_of_rotations))
 
+
 @type_checked("sparse", cupy.float32, cupy.float32)    
 def calculate_scaling_per_pattern_poisson_sparse(patterns, slices, scaling):
-    # if not isinstance(patterns, dict):
-    #     raise ValueError("patterns must be a dictionary containing the keys: indcies, values and start_indices")
-    # if ("indices" not in patterns or
-    #     "values" not in patterns or
-    #     "start_indices" not in patterns):
-    #     raise ValueError("patterns must contain the keys indcies, values and start_indices")
-    # if not _is_int(patterns["indices"]):
-    #     raise TypeError("argument patterns[indices] to calculate_scaling_per_pattern_poisson_sparse() must be of dtype int32")
-    # if not _is_int(patterns["values"]):
-    #     raise TypeError("argument patterns[values] to calculate_scaling_per_pattern_poisson_sparse() must be of dtype int32")
-    # if not _is_int(patterns["start_indices"]):
-    #     raise TypeError("argument patterns[start_indices] to calculate_scaling_per_pattern_poisson_sparse() must be of dtype int32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to calculate_scaling_per_pattern_poisson_sparse() must be of dtype float32")
-    # if not _is_float(scaling):
-    #     raise TypeError("argument scaling to calculate_scaling_per_pattern_poisson_sparse() must be of dtype float32")
     if len(patterns["start_indices"].shape) != 1 or patterns["start_indices"].shape[0] != scaling.shape[1]+1:
         raise ValueError("start_indices must be a 1d array of length one more than the number of patterns")
     if len(patterns["indices"].shape) != 1 or len(patterns["values"].shape) != 1 or patterns["indices"].shape != patterns["values"].shape:
@@ -752,14 +615,9 @@ def calculate_scaling_per_pattern_poisson_sparse(patterns, slices, scaling):
                                                                     slices, responsabilities, scaling, slices.shape[1]*slices.shape[2],
                                                                     number_of_rotations))
 
+
 @type_checked(cupy.float32, cupy.float32, cupy.float32)
 def expand_model_2d(model, slices, rotations):
-    # if not _is_float(model):
-    #     raise TypeError("argument model to expand_model_2d() must be of dtype float32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to expand_model_2d() must be of dtype float32")
-    # if not _is_float(rotations):
-    #     raise TypeError("argument rotations to expand_model_2d() must be of dtype float32")
     if len(slices) != len(rotations):
         raise ValueError("Slices and rotations must be of the same length.")
     if len(model.shape) != 2:
@@ -776,18 +634,9 @@ def expand_model_2d(model, slices, rotations):
                                        slices, slices.shape[1], slices.shape[2],
                                        rotations))
 
+
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32, cupy.float32, None)    
 def insert_slices_2d(model, model_weights, slices, slice_weights, rotations, interpolation="linear"):
-    # if not _is_float(model):
-    #     raise TypeError("argument model to insert_slices_2d() must be of dtype float32")
-    # if not _is_float(model_weights):
-    #     raise TypeError("argument model_weights to insert_slices_2d() must be of dtype float32")
-    # if not _is_float(slices):
-    #     raise TypeError("argument slices to insert_slices_2d() must be of dtype float32")
-    # if not _is_float(slice_weights):
-    #     raise TypeError("argument slice_weights to insert_slices_2d() must be of dtype float32")
-    # if not _is_float(rotations):
-    #     raise TypeError("argument rotations to insert_slices_2d() must be of dtype float32")
     if len(slices) != len(rotations):
         raise ValueError("slices and rotations must be of the same length.")
     if len(slices) != len(slice_weights):
@@ -808,7 +657,6 @@ def insert_slices_2d(model, model_weights, slices, slice_weights, rotations, int
                                        (model, model_weights, model.shape[0], model.shape[1],
                                         slices, slices.shape[1], slices.shape[2], slice_weights,
                                         rotations, interpolation_int))
-
 
 
 def assemble_model(patterns, rotations, coordinates, shape=None):
