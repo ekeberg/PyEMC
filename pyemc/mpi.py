@@ -246,7 +246,7 @@ class MpiDistNoMpi(MpiDist):
     def rotation_slice(self):
         return slice(0, self.total_number_of_rotations)
 
-    def rotation_slice(self):
+    def pattern_slice(self):
         return slice(0, self.total_number_of_patterns)
     
     def distribute_gpus(self):
