@@ -78,6 +78,26 @@ class LogFactorialTable:
         return self._table
 log_factorial = LogFactorialTable()
 
+
+class SliceSums:
+    def __init__(self, size=100):
+        # self._allocate_array(size)
+        self._array = None
+        self._last_size = size
+
+    def _allocate_array(self, size):
+        print(f"Allocate slice sums array of size {size}")
+        self._array = cupy.empty(size, dtype="float32")
+
+    def array(self, size=None):
+        if size is not None and (self._array is None or len(self._array) < size):
+            self._allocate_array(size)
+        if size is not None:
+            self._last_size = size
+        return self._array[:self._last_size]
+slice_sums = SliceSums()
+
+
 def import_cuda_file(file_name, kernel_names):
     # nthreads = 128
     threads_code = f"const int NTHREADS = {_NTHREADS};"
@@ -348,22 +368,18 @@ def calculate_responsabilities_poisson_dense(patterns, slices, responsabilities,
         kernels["kernel_calculate_responsabilities_poisson"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                              (patterns, slices, slices.shape[2]*slices.shape[1], responsabilities,
                                                               log_factorial.table(patterns_max)))
-                                                              # calculate_responsabilities_poisson_dense.log_factorial_table))
     elif len(scalings.shape) == 2:
         # Scaling per pattern and slice pair
         kernels["kernel_calculate_responsabilities_poisson_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                                      (patterns, slices, slices.shape[2]*slices.shape[1],
                                                                       scalings, responsabilities,
                                                                       log_factorial.table(patterns_max)))
-                                                                      # calculate_responsabilities_poisson_dense.log_factorial_table))
     else:
         # Scaling per pattern
         kernels["kernel_calculate_responsabilities_poisson_per_pattern_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                                                  (patterns, slices, slices.shape[2]*slices.shape[1],
                                                                                   scalings, responsabilities,
                                                                                   log_factorial.table(patterns_max)))
-                                                                                  # calculate_responsabilities_poisson_dense.log_factorial_table))
-# calculate_responsabilities_poisson_dense.log_factorial_table = None
 
 
 @type_checked("sparse", cupy.float32, cupy.float32, cupy.float32)
@@ -382,48 +398,33 @@ def calculate_responsabilities_poisson_sparse(patterns, slices, responsabilities
                                      (len(scalings.shape) == 1 or scalings.shape[0] == number_of_patterns)):
         raise ValueError("Scalings must have the same shape as responsabilities")
     
-    # if (calculate_responsabilities_poisson_sparse.log_factorial_table is None or
-    #     len(calculate_responsabilities_poisson_sparse.log_factorial_table) <= patterns["values"].max()):
-    #     calculate_responsabilities_poisson_sparse.log_factorial_table = _log_factorial_table(patterns["values"].max())
-    
-    if (calculate_responsabilities_poisson_sparse.slice_sums is None or
-        len(calculate_responsabilities_poisson_sparse.slice_sums) != len(slices)):
-        calculate_responsabilities_poisson_sparse.slice_sums = cupy.empty(len(slices), dtype="float32")
     patterns_max = patterns["values"].max()
     number_of_rotations = len(slices)
     number_of_patterns = len(patterns["start_indices"])-1
     if scalings is None:
         kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
-                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparse.slice_sums))
+                                     (slices, slices.shape[1]*slices.shape[2], slice_sums.array(len(slices)))
         kernels["kernel_calculate_responsabilities_sparse"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                             (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                              slices, slices.shape[2]*slices.shape[1], responsabilities,
-                                                             calculate_responsabilities_poisson_sparse.slice_sums,
-                                                             log_factorial.table(patterns_max)))
-                                                             # calculate_responsabilities_poisson_sparse.log_factorial_table))
+                                                             slice_sums.array(), log_factorial.table(patterns_max)))
     elif len(scalings.shape) == 2:
         kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
-                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparse.slice_sums))
+                                     (slices, slices.shape[1]*slices.shape[2], slice_sums.array(len(slices))))
         kernels["kernel_calculate_responsabilities_sparse_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                                     (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                                      slices, slices.shape[2]*slices.shape[1],
                                                                      scalings, responsabilities,
-                                                                     calculate_responsabilities_poisson_sparse.slice_sums,
-                                                                     log_factorial.table(patterns_max)))
-                                                                     # calculate_responsabilities_poisson_sparse.log_factorial_table))
+                                                                     slice_sums.array(), log_factorial.table(patterns_max)))
     else:
         kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
-                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparse.slice_sums))
+                                     (slices, slices.shape[1]*slices.shape[2], slice_sums.array(len(slice))))
         kernels["kernel_calculate_responsabilities_sparse_per_pattern_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                                                 (patterns["start_indices"], patterns["indices"],
                                                                                  patterns["values"],
                                                                                  slices, slices.shape[2]*slices.shape[1], scalings,
                                                                                  responsabilities,
-                                                                                 calculate_responsabilities_poisson_sparse.slice_sums,
-                                                                                 log_factorial.table(patterns_max)))
-                                                                                 # calculate_responsabilities_poisson_sparse.log_factorial_table))
-# calculate_responsabilities_poisson_sparse.log_factorial_table = None
-calculate_responsabilities_poisson_sparse.slice_sums = None
+                                                                                 slice_sums.array(), log_factorial.table(patterns_max)))
 
 
 @type_checked("sparser", cupy.float32, cupy.float32, cupy.float32)
@@ -444,38 +445,26 @@ def calculate_responsabilities_poisson_sparser(patterns, slices, responsabilitie
                                      (len(scalings.shape) == 1 or scalings.shape[0] == number_of_patterns)):
         raise ValueError("Scalings must have the same shape as responsabilities")
     
-    # if (calculate_responsabilities_poisson_sparser.log_factorial_table is None or
-    #     len(calculate_responsabilities_poisson_sparser.log_factorial_table) <= patterns["values"].max()):
-    #     calculate_responsabilities_poisson_sparser.log_factorial_table = _log_factorial_table(patterns["values"].max())
-    
-    if (calculate_responsabilities_poisson_sparser.slice_sums is None or
-        len(calculate_responsabilities_poisson_sparser.slice_sums) != len(slices)):
-        calculate_responsabilities_poisson_sparser.slice_sums = cupy.empty(len(slices), dtype="float32")
-
     patterns_max = patterns["values"].max()
     number_of_rotations = len(slices)
     number_of_patterns = len(patterns["start_indices"])-1
     if scalings is None:
         kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
-                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparser.slice_sums))
+                                     (slices, slices.shape[1]*slices.shape[2], slice_sums.array(len(slices))))
         kernels["kernel_calculate_responsabilities_sparser"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                              (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                               patterns["ones_start_indices"], patterns["ones_indices"],
                                                               slices, slices.shape[2]*slices.shape[1], responsabilities,
-                                                              calculate_responsabilities_poisson_sparser.slice_sums,
-                                                              log_factorial.table(patterns_max)))
-                                                              # calculate_responsabilities_poisson_sparser.log_factorial_table))
+                                                              slice_sums.array(), log_factorial.table(patterns_max)))
     elif len(scalings.shape) == 2:
         kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
-                                     (slices, slices.shape[1]*slices.shape[2], calculate_responsabilities_poisson_sparser.slice_sums))
+                                     (slices, slices.shape[1]*slices.shape[2], slice_sums.array(len(slices))))
         kernels["kernel_calculate_responsabilities_sparser_scaling"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
                                                                      (patterns["start_indices"], patterns["indices"], patterns["values"],
                                                                       patterns["ones_start_indices"], patterns["ones_indices"],
                                                                       slices, slices.shape[2]*slices.shape[1],
                                                                       scalings, responsabilities,
-                                                                      calculate_responsabilities_poisson_sparser.slice_sums,
-                                                                      log_factorial.table(patterns_max)))
-                                                                      # calculate_responsabilities_poisson_sparser.log_factorial_table))
+                                                                      slice_sums.array(), log_factorial.table(patterns_max)))
     else:
         raise NotImplementedError("Can't use per pattern scaling together with sparser format.")
         # kernels["kernel_sum_slices"]((number_of_rotations, ), (_NTHREADS, ),
@@ -487,8 +476,6 @@ def calculate_responsabilities_poisson_sparser(patterns, slices, responsabilitie
         #                                                                          responsabilities,
         #                                                                          calculate_responsabilities_poisson_sparser.slice_sums,
         #                                                                          calculate_responsabilities_poisson_sparser.log_factorial_table))
-# calculate_responsabilities_poisson_sparser.log_factorial_table = None
-calculate_responsabilities_poisson_sparser.slice_sums = None
 
 
 def calculate_scaling_poisson(patterns, slices, scaling):
