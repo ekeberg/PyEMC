@@ -666,13 +666,13 @@ __device__ void device_get_slice_2d(const float *const model,
   }
 }
 
-__global__ void kernel_expand_model_2d(const float *const model,
-				    const int model_x,
-				    const int model_y,
-				    float *const slices,
-				    const int image_x,
-				    const int image_y,
-				    const float *const rotations)
+extern "C" __global__ void kernel_expand_model_2d(const float *const model,
+						  const int model_x,
+						  const int model_y,
+						  float *const slices,
+						  const int image_x,
+						  const int image_y,
+						  const float *const rotations)
 {
   const int rotation_index = blockIdx.x;
   device_get_slice_2d(model,
@@ -731,16 +731,16 @@ __device__ void device_insert_slice_2d(float *const model,
   }
 }
 
-__global__ void kernel_insert_slices_2d(float *const model,
-				     float *const model_weights,
-				     const int model_x,
-				     const int model_y,
-				     const float *const slices,
-				     const int image_x,
-				     const int image_y,
-				     const float *const slice_weights,
-				     const float *const rotations,
-				     const int interpolation) {
+extern "C" __global__ void kernel_insert_slices_2d(float *const model,
+						   float *const model_weights,
+						   const int model_x,
+						   const int model_y,
+						   const float *const slices,
+						   const int image_x,
+						   const int image_y,
+						   const float *const slice_weights,
+						   const float *const rotations,
+						   const int interpolation) {
   const int rotation_index = blockIdx.x;
   device_insert_slice_2d(model,
 			 model_weights,
@@ -753,3 +753,236 @@ __global__ void kernel_insert_slices_2d(float *const model,
 			 rotations[rotation_index],
 			 interpolation);
 }
+
+
+/* __device__ float device_model_2dget(const float *const model, */
+/* 				    const int model_x, */
+/* 				    const int model_y, */
+/* 				    const float coordinate_x, */
+/* 				    const float coordinate_y) */
+/* { */
+/*   int low_x, low_y; */
+/*   float low_weight_x, low_weight_y; */
+/*   float high_weight_x, high_weight_y; */
+/*   int out_of_range = 0; */
+/*   device_interpolate_get_coordinate_weight(coordinate_x, model_x, */
+/* 					   &low_x, &low_weight_x, */
+/* 					   &high_weight_x, &out_of_range); */
+/*   device_interpolate_get_coordinate_weight(coordinate_y, model_y, */
+/* 					   &low_y, &low_weight_y, */
+/* 					   &high_weight_y, &out_of_range); */
+
+/*   if (out_of_range != 0) { */
+/*     return -1.f; */
+/*   } else { */
+/*     float interp_sum = 0.; */
+/*     float interp_weight = 0.; */
+/*     int index_x, index_y; */
+/*     float weight_x, weight_y; */
+/*     for (index_x = low_x; index_x <= low_x+1; index_x += 1) { */
+/*       if (index_x == low_x && low_weight_x == 0.) continue; */
+/*       if (index_x == (low_x+1) && high_weight_x == 0.) continue; */
+/*       if (index_x == low_x) weight_x = low_weight_x; */
+/*       else weight_x = high_weight_x; */
+
+/*       for (index_y = low_y; index_y <= low_y+1; index_y += 1) { */
+/* 	if (index_y == low_y && low_weight_y == 0.) continue; */
+/* 	if (index_y == (low_y+1) && high_weight_y == 0.) continue; */
+/* 	if (index_y == low_y) weight_y = low_weight_y; */
+/* 	else weight_y = high_weight_y; */
+
+/* 	if (model[model_y*index_x + index_y] >= 0.) { */
+/* 	  interp_sum += weight_x*weight_y*model[model_y*index_x + index_y]; */
+/* 	  interp_weight += weight_x*weight_y; */
+/* 	} */
+/*       } */
+/*     } */
+/*     if (interp_weight > 0.) { */
+/*       return interp_sum / interp_weight; */
+/*     } else { */
+/*       return -1.f; */
+/*     } */
+/*   } */
+/* } */
+
+/* __device__ void device_model_2dset(float *const model, */
+/* 				   float *const model_weights, */
+/* 				   const int model_x, */
+/* 				   const int model_y, */
+/* 				   const float coordinate_x, */
+/* 				   const float coordinate_y, */
+/* 				   const float value, */
+/* 				   const float value_weight) */
+/* { */
+/*   int low_x, low_y; */
+/*   float low_weight_x, low_weight_y; */
+/*   float high_weight_x, high_weight_y; */
+/*   int out_of_range = 0; */
+/*   device_interpolate_get_coordinate_weight(coordinate_x, model_x, */
+/* 					   &low_x, &low_weight_x, */
+/* 					   &high_weight_x, &out_of_range); */
+/*   device_interpolate_get_coordinate_weight(coordinate_y, model_y, */
+/* 					   &low_y, &low_weight_y, */
+/* 					   &high_weight_y, &out_of_range); */
+
+/*   if (out_of_range == 0) { */
+/*     int index_x, index_y; */
+/*     float weight_x, weight_y; */
+/*     for (index_x = low_x; index_x <= low_x+1; index_x += 1) { */
+/*       if (index_x == low_x && low_weight_x == 0.) continue; */
+/*       if (index_x == (low_x+1) && high_weight_x == 0.) continue; */
+/*       if (index_x == low_x) weight_x = low_weight_x; */
+/*       else weight_x = high_weight_x; */
+
+/*       for (index_y = low_y; index_y <= low_y+1; index_y += 1) { */
+/* 	if (index_y == low_y && low_weight_y == 0.) continue; */
+/* 	if (index_y == (low_y+1) && high_weight_y == 0.) continue; */
+/* 	if (index_y == low_y) weight_y = low_weight_y; */
+/* 	else weight_y = high_weight_y; */
+
+/* 	atomicAdd(&model[model_y*index_x + index_y], */
+/* 		  weight_x*weight_y*value_weight*value); */
+/* 	atomicAdd(&model_weights[model_y*index_x + index_y], */
+/* 		  weight_x*weight_y*value_weight); */
+/*       } */
+/*     } */
+/*   } */
+/* } */
+
+/* __device__ void device_model_2dset_nn(float *const model, */
+/* 				      float *const model_weights, */
+/* 				      const int model_x, */
+/* 				      const int model_y, */
+/* 				      const float coordinate_x, */
+/* 				      const float coordinate_y, */
+/* 				      const float value, */
+/* 				      const float value_weight) */
+/* { */
+/*   int index_x = (int) (coordinate_x + 0.5); */
+/*   int index_y = (int) (coordinate_y + 0.5); */
+/*   if (index_x >= 0 && index_x < model_x && */
+/*       index_y >= 0 && index_y < model_y) { */
+/*     atomicAdd(&model[model_y*index_x + index_y], */
+/* 	      value_weight*value); */
+/*     atomicAdd(&model_weights[model_y*index_x + index_y], */
+/* 	      value_weight); */
+/*   } */
+/* } */
+
+/* __device__ void device_get_slice_2d(const float *const model, */
+/* 				    const int model_x, */
+/* 				    const int model_y, */
+/* 				    float *const slice, */
+/* 				    const int image_x, */
+/* 				    const int image_y, */
+/* 				    const float rotation) {   */
+/*   float m00 = cos(rotation); */
+/*   float m01 = -sin(rotation); */
+/*   float m10 = sin(rotation); */
+/*   float m11 = cos(rotation); */
+
+/*   float new_x, new_y; */
+/*   for (int x = 0; x < image_x; x++) { */
+/*     for (int y = threadIdx.x; y < image_y; y+=blockDim.x) { */
+/*       /\* This is just a matrix multiplication with rotation *\/ */
+/*       float this_x = x - image_x/2. + 0.5; */
+/*       float this_y = y - image_y/2. + 0.5; */
+/*       new_x = (m00*this_x + */
+/* 	       m01*this_y + */
+/* 	       model_x/2.0 - 0.5); */
+/*       new_y = (m10*this_x +  */
+/* 	       m11*this_y + */
+/* 	       model_y/2.0 - 0.5); */
+
+/*       slice[x*image_y+y] = device_model_2dget(model, model_x, model_y, new_x, new_y); */
+/*     } */
+/*   } */
+/* } */
+
+/* __global__ void kernel_expand_model_2d(const float *const model, */
+/* 				    const int model_x, */
+/* 				    const int model_y, */
+/* 				    float *const slices, */
+/* 				    const int image_x, */
+/* 				    const int image_y, */
+/* 				    const float *const rotations) */
+/* { */
+/*   const int rotation_index = blockIdx.x; */
+/*   device_get_slice_2d(model, */
+/* 		      model_x, */
+/* 		      model_y, */
+/* 		      &slices[image_x*image_y*rotation_index], */
+/* 		      image_x, */
+/* 		      image_y, */
+/* 		      rotations[rotation_index]); */
+/* } */
+
+/* __device__ void device_insert_slice_2d(float *const model, */
+/* 				       float *const model_weights, */
+/* 				       const int model_x, */
+/* 				       const int model_y, */
+/* 				       const float *const slice, */
+/* 				       const int image_x, */
+/* 				       const int image_y, */
+/* 				       const float slice_weight, */
+/* 				       const float rotation, */
+/* 				       const int interpolation) */
+/* { */
+/*   float m00 = cos(rotation); */
+/*   float m01 = -sin(rotation); */
+/*   float m10 = sin(rotation); */
+/*   float m11 = cos(rotation); */
+
+/*   float new_x, new_y; */
+/*   for (int x = 0; x < image_x; x++) { */
+/*     for (int y = threadIdx.x; y < image_y; y+=blockDim.x) { */
+/*       if (slice[x*image_y+y] >= 0.) { */
+/* 	/\* This is just a matrix multiplication with rotation *\/ */
+/* 	float this_x = x-image_x/2. + 0.5; */
+/* 	float this_y = y-image_y/2. + 0.5; */
+
+/* 	new_x = (m00*this_x + */
+/* 		 m01*this_y + */
+/* 		 model_x/2.0 - 0.5); */
+/* 	new_y = (m10*this_x + */
+/* 		 m11*this_y + */
+/* 		 model_y/2.0 - 0.5); */
+
+/* 	if (interpolation == 0) { */
+/* 	  device_model_2dset_nn(model, model_weights, */
+/* 				model_x, model_y, */
+/* 				new_x, new_y, */
+/* 				slice[x*image_y+y], slice_weight); */
+/* 	} else { */
+/* 	  device_model_2dset(model, model_weights, */
+/* 			     model_x, model_y, */
+/* 			     new_x, new_y, */
+/* 			     slice[x*image_y+y], slice_weight); */
+/* 	} */
+/*       } */
+/*     } */
+/*   } */
+/* } */
+
+/* __global__ void kernel_insert_slices_2d(float *const model, */
+/* 				     float *const model_weights, */
+/* 				     const int model_x, */
+/* 				     const int model_y, */
+/* 				     const float *const slices, */
+/* 				     const int image_x, */
+/* 				     const int image_y, */
+/* 				     const float *const slice_weights, */
+/* 				     const float *const rotations, */
+/* 				     const int interpolation) { */
+/*   const int rotation_index = blockIdx.x; */
+/*   device_insert_slice_2d(model, */
+/* 			 model_weights, */
+/* 			 model_x, */
+/* 			 model_y, */
+/* 			 &slices[image_x*image_y*rotation_index], */
+/* 			 image_x, */
+/* 			 image_y, */
+/* 			 slice_weights[rotation_index], */
+/* 			 rotations[rotation_index], */
+/* 			 interpolation); */
+/* } */

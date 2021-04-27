@@ -83,6 +83,64 @@ extern "C" __global__ void kernel_calculate_scaling_poisson_sparse(const int *co
   }
 }
 
+extern "C" __global__ void kernel_calculate_scaling_poisson_sparser(const int *const pattern_start_indices,
+								    const int *const pattern_indices,
+								    const int *const pattern_values,
+								    const int *const pattern_ones_start_indices,
+								    const int *const pattern_ones_indices,
+								    const float *const slices,
+								    float *const scaling,
+								    const int number_of_pixels) {
+  const int index_pattern = blockIdx.x;
+  const int index_slice = blockIdx.y;
+  const int number_of_patterns = gridDim.x;
+
+  //const float *const pattern = &patterns[number_of_pixels*index_pattern];
+  const float *const slice = &slices[number_of_pixels*index_slice];
+
+  const int this_start_index = pattern_start_indices[index_pattern];
+  const int this_end_index = pattern_start_indices[index_pattern+1];
+
+  float sum_slice = 0.;
+  int sum_pattern = 0;
+
+  int index;  
+  for (index = this_start_index+threadIdx.x; index < this_end_index; index += blockDim.x) {
+    if (slice[pattern_indices[index]]) {
+      sum_pattern += pattern_values[index];
+    }
+  }
+
+  const int this_ones_start_index = pattern_ones_start_indices[index_pattern];
+  const int this_ones_end_index = pattern_ones_start_indices[index_pattern+1];
+  
+  for (index = this_ones_start_index+threadIdx.x; index < this_ones_end_index; index += blockDim.x) {
+    if (slice[pattern_ones_indices[index]]) {
+      sum_pattern += 1;
+    }
+  }
+  
+  for (int index = threadIdx.x; index < number_of_pixels; index += blockDim.x) {
+    if (slice[index] >= 0.) {
+      sum_slice += slice[index];
+    }
+  }
+
+  __shared__ float sum_slice_cache[NTHREADS];
+  __shared__ float sum_pattern_cache[NTHREADS];  
+  sum_slice_cache[threadIdx.x] = sum_slice;
+  sum_pattern_cache[threadIdx.x] = (float) sum_pattern;
+  inblock_reduce(sum_slice_cache);
+  inblock_reduce(sum_pattern_cache);
+
+  if (threadIdx.x == 0 ) {
+    if (sum_pattern_cache[0] > 0) {
+      scaling[index_slice*number_of_patterns + index_pattern] = sum_slice_cache[0] / sum_pattern_cache[0];
+    } else {
+      scaling[index_slice*number_of_patterns + index_pattern] = 1.0;
+    }
+  }
+}
 
 extern "C" __global__ void kernel_calculate_scaling_per_pattern_poisson(const float *const patterns,
 									const float *const slices,

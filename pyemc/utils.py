@@ -74,13 +74,42 @@ def read_sparse_data(file_name, file_key=None, start_index=0, end_index=-1, outp
                     "indices": output_module.asarray(group["indices"][value_start_index:value_end_index], dtype="int32"),
                     "values": output_module.asarray(group["values"][value_start_index:value_end_index], dtype="int32"),
                     "shape": tuple(group["shape"][...])}
-
-        # patterns = {"start_indices": numpy.int32(all_start_indices[start_index:end_index+1]),
-        #             "indices": numpy.int32(group["indices"][value_start_index:value_end_index]),
-        #             "values": numpy.float32(group["values"][value_start_index:value_end_index]),
-        #             "shape": tuple(group["shape"][...])}
         return patterns
 
+def read_sparser_data(file_name, file_key=None, start_index=0, end_index=-1, output_type="numpy"):
+    with h5py.File(file_name, "r") as file_handle:
+        if file_key is None:
+            group = file_handle
+        else:
+            group = file_handle[file_key]
+
+        all_start_indices = group["start_indices"][...]
+        all_ones_start_indices = group["ones_start_indices"][...]
+        value_start_index = all_start_indices[start_index]
+        ones_start_index = all_ones_start_indices[start_index]
+        if end_index == len(all_start_indices)-1 or end_index == -1:
+            value_end_index = -1
+            ones_end_index = -1
+        else:
+            value_end_index = all_start_indices[end_index+1]
+            ones_end_index = all_ones_start_indices[end_index+1]
+
+            
+        if output_type.lower() == "numpy":
+            output_module = numpy
+        elif output_type.lower() == "cupy":
+            output_module = cupy
+        else:
+            raise ValueError(f"Argument output_array must be either numpy or cupy. Can't recognize: {output_array}")
+            
+        patterns = {"start_indices": output_module.asarray(all_start_indices[start_index:end_index+1] - all_start_indices[start_index], dtype="int32"),
+                    "indices": output_module.asarray(group["indices"][value_start_index:value_end_index], dtype="int32"),
+                    "values": output_module.asarray(group["values"][value_start_index:value_end_index], dtype="int32"),
+                    "ones_start_indices": output_module.asarray(all_ones_start_indices[start_index:end_index+1] - all_ones_start_indices[start_index], dtype="int32"),
+                    "ones_indices": output_module.asarray(group["ones_indices"][ones_start_index:ones_end_index], dtype="int32"),
+                    "shape": tuple(group["shape"][...])}
+        return patterns
+    
 def read_dense_data(file_name, file_key=None, start_index=0, end_index=-1, output_type="numpy"):
     if output_type.lower() == "numpy":
         output_module = numpy
@@ -178,3 +207,67 @@ def chunks(number_of_rotations, chunk_size):
                      in zip(chunk_starts, chunk_ends)]
     for this_indices_cpu, this_indices_gpu in zip(indices_cpu, indices_gpu):
         yield this_indices_cpu, this_indices_gpu
+
+
+def images_to_sparse(patterns):
+    number_of_patterns = len(patterns)
+    number_of_lit_pixels = (patterns > 0).sum()
+    start_indices = numpy.zeros(number_of_patterns+1, dtype="int32")
+    indices = numpy.zeros(number_of_lit_pixels, dtype="int32")
+    values = numpy.zeros(number_of_lit_pixels, dtype="int32")
+    counter = 0
+    #for index_pattern in range(len(patterns)):
+    for index_pattern, this_pattern in enumerate(patterns):
+        #this_pattern = patterns[index_pattern]
+        if index_pattern%100 == 0: print(f"{index_pattern} patterns done")
+        flat_pattern = this_pattern.flatten()
+        start_indices[index_pattern] = counter
+        for index, value in enumerate(flat_pattern):
+            if value > 0:
+                indices[counter] = index
+                values[counter] = value
+                counter += 1
+    start_indices[-1] = counter
+    return {"start_indices": start_indices,
+            "indices": indices,
+            "values": values,
+            "shape": patterns.shape[1:]}
+
+
+def images_to_sparser(patterns):
+    number_of_patterns = len(patterns)
+    # number_of_lit_pixels = (patterns > 0).sum()
+    number_of_ones = (patterns == 1).sum()
+    number_of_largers = (patterns > 1).sum()
+    ones_start_indices = numpy.zeros(number_of_patterns+1, dtype="int32")
+    start_indices = numpy.zeros(number_of_patterns+1, dtype="int32")
+    ones_indices = numpy.zeros(number_of_ones, dtype="int32")
+    indices = numpy.zeros(number_of_largers, dtype="int32")
+    values = numpy.zeros(number_of_largers, dtype="int32")
+
+    ones_counter = 0
+    largers_counter = 0
+    #for index_pattern in range(len(patterns)):
+    for index_pattern, this_pattern in enumerate(patterns):
+        #this_pattern = patterns[index_pattern]
+        if index_pattern%100 == 0: print(f"{index_pattern} patterns done")
+        flat_pattern = this_pattern.flatten()
+        ones_start_indices[index_pattern] = ones_counter
+        start_indices[index_pattern] = largers_counter
+        for index, value in enumerate(flat_pattern):
+            if value == 1:
+                ones_indices[ones_counter] = index
+                ones_counter += 1
+            if value > 1:
+                indices[largers_counter] = index
+                values[largers_counter] = value
+                largers_counter += 1
+    ones_start_indices[-1] = ones_counter
+    start_indices[-1] = largers_counter
+
+    return {"ones_start_indices": ones_start_indices,
+            "start_indices": start_indices,
+            "ones_indices": ones_indices,
+            "indices": indices,
+            "values": values,
+            "shape": patterns.shape[1:]}

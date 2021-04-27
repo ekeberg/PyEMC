@@ -235,6 +235,61 @@ extern "C" __global__ void kernel_calculate_responsabilities_sparse_per_pattern_
   }
 }
 
+
+extern "C" __global__ void kernel_calculate_responsabilities_sparser_scaling(const int *const pattern_start_indices,
+									     const int *const pattern_indices,
+									     const int *const pattern_values,
+									     const int *const pattern_ones_start_indices,
+									     const int *const pattern_ones_indices,
+									     const float *const slices,
+									     const int number_of_pixels,
+									     const float *const scaling,
+									     float *const responsabilities,
+									     const float *const slice_sums,
+									     const float *const log_factorial_table)
+{
+  __shared__ float sum_cache[NTHREADS];
+
+  const int number_of_patterns = gridDim.x;
+  const int index_pattern = blockIdx.x;
+  const int index_slice = blockIdx.y;
+  const float *const slice = &slices[number_of_pixels*index_slice];
+  const float this_scaling = scaling[index_slice*number_of_patterns + index_pattern];
+
+  
+  int index_pixel;
+  float sum = 0.;
+  int this_pattern_start = pattern_start_indices[index_pattern];
+  int this_pattern_end = pattern_start_indices[index_pattern+1];
+  for (int index = this_pattern_start+threadIdx.x;
+       index < this_pattern_end;
+       index += blockDim.x) {
+    index_pixel = pattern_indices[index];
+    if (slice[index_pixel] > 0.) {
+      sum += pattern_values[index] * logf(slice[index_pixel]/this_scaling) - log_factorial_table[pattern_values[index]];
+    }
+  }
+
+  int this_pattern_ones_start = pattern_ones_start_indices[index_pattern];
+  int this_pattern_ones_end = pattern_ones_start_indices[index_pattern+1];
+  for (int index = this_pattern_ones_start+threadIdx.x;
+       index < this_pattern_ones_end;
+       index += blockDim.x) {
+    index_pixel = pattern_ones_indices[index];
+    if (slice[index_pixel] > 0.) {
+      sum += logf(slice[index_pixel]/this_scaling);
+    }
+  }
+  
+  sum_cache[threadIdx.x] = sum;
+  inblock_reduce(sum_cache);
+  if (threadIdx.x == 0) {
+    responsabilities[index_slice*number_of_patterns + index_pattern] = -slice_sums[index_slice]/this_scaling + sum_cache[0];
+  }
+}
+
+
+
 /* __global__ void kernel_calculate_surprise_estimate_and_variance(const float *const slices, */
 /* 								float * const surprise_expectation, */
 /* 								float * const surprise_variance, */
