@@ -236,6 +236,55 @@ extern "C" __global__ void kernel_calculate_responsabilities_sparse_per_pattern_
 }
 
 
+extern "C" __global__ void kernel_calculate_responsabilities_sparser(const int *const pattern_start_indices,
+								     const int *const pattern_indices,
+								     const int *const pattern_values,
+								     const int *const pattern_ones_start_indices,
+								     const int *const pattern_ones_indices,
+								     const float *const slices,
+								     const int number_of_pixels,
+								     float *const responsabilities,
+								     const float *const slice_sums,
+								     const float *const log_factorial_table)
+{
+  __shared__ float sum_cache[NTHREADS];
+
+  const int number_of_patterns = gridDim.x;
+  const int index_pattern = blockIdx.x;
+  const int index_slice = blockIdx.y;
+  const float *const slice = &slices[number_of_pixels*index_slice];
+  
+  int index_pixel;
+  float sum = 0.;
+  for (int index = pattern_start_indices[index_pattern]+threadIdx.x;
+       index < pattern_start_indices[index_pattern+1];
+       index += blockDim.x) {
+    index_pixel = pattern_indices[index];
+    if (slice[index_pixel] > 0.) {
+      sum += (pattern_values[index] *
+      	      logf(slice[index_pixel]) -
+      	      log_factorial_table[pattern_values[index]]);
+    }
+  }
+
+  for (int index = pattern_ones_start_indices[index_pattern]+threadIdx.x;
+       index < pattern_ones_start_indices[index_pattern+1];
+       index += blockDim.x) {
+    index_pixel = pattern_ones_indices[index];
+    if (slice[index_pixel] > 0.) {
+      sum += logf(slice[index_pixel]);
+    }
+  }
+
+  
+  sum_cache[threadIdx.x] = sum;
+  inblock_reduce(sum_cache);
+  if (threadIdx.x == 0) {
+    responsabilities[index_slice*number_of_patterns + index_pattern] = -slice_sums[index_slice] + sum_cache[0];
+  }
+}
+
+
 extern "C" __global__ void kernel_calculate_responsabilities_sparser_scaling(const int *const pattern_start_indices,
 									     const int *const pattern_indices,
 									     const int *const pattern_values,

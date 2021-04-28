@@ -304,6 +304,51 @@ extern "C" __global__ void kernel_update_slices_sparse_per_pattern_scaling(float
   }
 }
 
+
+extern "C" __global__ void kernel_update_slices_sparser(float *const slices,
+							const int number_of_pixels,
+							const int *const pattern_start_indices,
+							const int *const pattern_indices,
+							const int *const pattern_values,
+							const int *const pattern_ones_start_indices,
+							const int *const pattern_ones_indices,
+							const int number_of_patterns,
+							const float *const responsabilities,
+							const float resp_threshold)
+{
+  //const int number_of_rotations = gridDim.x;
+  const int index_rotation = blockIdx.x;
+  
+  int index_pixel;
+  
+  for (int index_pixel = threadIdx.x; index_pixel < number_of_pixels; index_pixel += blockDim.x) {
+    slices[index_rotation*number_of_pixels + index_pixel] = 0.0;
+  }
+  __syncthreads();
+  for (int index_pattern = 0; index_pattern < number_of_patterns; index_pattern++) {
+    float this_resp = responsabilities[index_rotation*number_of_patterns + index_pattern];
+
+    for (int value_index = pattern_start_indices[index_pattern] + threadIdx.x;
+    	 value_index < pattern_start_indices[index_pattern+1];
+    	 value_index += blockDim.x) {
+      index_pixel = pattern_indices[value_index];
+      if (this_resp > resp_threshold) {
+	atomicAdd(&slices[index_rotation*number_of_pixels + index_pixel],
+		  pattern_values[value_index] * this_resp);
+      }
+    }
+
+    for (int ones_index = pattern_ones_start_indices[index_pattern]+threadIdx.x;
+	 ones_index < pattern_ones_start_indices[index_pattern+1];
+	 ones_index += blockDim.x) {
+      index_pixel = pattern_ones_indices[ones_index];
+      atomicAdd(&slices[index_rotation*number_of_pixels + index_pixel],
+		this_resp);
+    }
+  }
+}
+
+
 extern "C" __global__ void kernel_update_slices_sparser_scaling(float *const slices,
 								const int number_of_pixels,
 								const int *const pattern_start_indices,
