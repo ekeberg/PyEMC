@@ -35,7 +35,7 @@ def type_checked(*type_args):
                 if this_index in defaults_used:
                     continue
                 elif this_type is "dense":
-                    if not isinstance(this_arg, cupy.ndarray) or cupy.float32 != cupy.dtype(this_arg.dtype):
+                    if not isinstance(this_arg, cupy.ndarray) or cupy.int32 != cupy.dtype(this_arg.dtype):
                         raise TypeError(f"Argument {this_index} to {func.__name__} must be dense patterns (cupy int32)")
                 elif this_type is "sparse":
                     if (not isinstance(this_arg, dict) or not
