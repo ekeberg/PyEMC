@@ -15,7 +15,7 @@ args = parser.parse_args()
 
 
 def init_model_radial_average_sparse(patterns, model_shape):
-    print("start creating model")
+    # print("start creating model")
     radial_index = numpy.int32(tools.radial_distance(patterns["shape"]))
     radial_sum = numpy.zeros(radial_index.max()+1)
     radial_count = numpy.zeros(radial_index.max()+1)
@@ -32,13 +32,17 @@ def init_model_radial_average_sparse(patterns, model_shape):
     radial_count *= len(patterns["start_indices"])
 
     radial_average = radial_sum / radial_count
+    # print(radial_average)
     
     radial_index_3d = numpy.int32(tools.radial_distance(model_shape))
+    # print(radial_index_3d[64, 80, :])
     radial_index_3d_copy = radial_index_3d.copy()
     radial_index_3d_copy[radial_index_3d >= len(radial_average)] = 0
+    # print(radial_index_3d_copy[64, 80, :])
     
     model = radial_average[radial_index_3d_copy]
-    model[radial_index_3d_copy >= model_shape[0]/2.] = -1.
+    model[radial_index_3d >= model_shape[0]/2.] = -1.
+    # print(model[64, 80, :])
     
     return numpy.array(model, dtype=numpy.dtype("float32"))
     
