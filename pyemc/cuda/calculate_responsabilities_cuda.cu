@@ -488,3 +488,71 @@ extern "C" __global__ void kernel_calculate_responsabilities_sparser_scaling(con
 /*     } */
 /*   } */
 /* } */
+
+
+extern "C" __global__ void kernel_calculate_responsabilities_gaussian(const float *const patterns,
+								      const float *const slices,
+								      const int number_of_pixels,
+								      float *const responsabilities,
+								      float sigma)
+{
+  __shared__ float sum_cache[NTHREADS];
+  
+  const int index_pattern = blockIdx.x;
+  const int index_slice = blockIdx.y;
+  const int number_of_patterns = gridDim.x;
+  
+  const float *const pattern = &patterns[number_of_pixels*index_pattern];
+  const float *const slice = &slices[number_of_pixels*index_slice];
+  
+  float sum = 0.;
+  for (int index = threadIdx.x; index < number_of_pixels; index += blockDim.x) {
+    if (pattern[index] >= 0 && slice[index] > 0.) {
+      sum -= (powf(pattern[index] - slice[index], 2) / (2*powf(sigma, 2)));
+      //sum = powf(sigma, 2);
+    }
+  }
+  sum_cache[threadIdx.x] = sum;
+
+  inblock_reduce(sum_cache);
+  if (threadIdx.x == 0) {
+    responsabilities[index_slice*number_of_patterns + index_pattern] = sum_cache[0];
+  }
+}
+
+/* extern "C" __global__ void kernel_calculate_responsabilities_poisson(const int* const patterns, */
+/* 								     const float *const slices, */
+/* 								     const int number_of_pixels, */
+/* 								     float *const responsabilities, */
+/* 								     const float *const log_factorial_table) */
+/* { */
+/*   __shared__ float sum_cache[NTHREADS]; */
+  
+/*   const int index_pattern = blockIdx.x; */
+/*   const int index_slice = blockIdx.y; */
+/*   const int number_of_patterns = gridDim.x; */
+  
+/*   const int *const pattern = &patterns[number_of_pixels*index_pattern]; */
+/*   const float *const slice = &slices[number_of_pixels*index_slice]; */
+  
+/*   float sum = 0.; */
+/*   for (int index = threadIdx.x; index < number_of_pixels; index += blockDim.x) { */
+/*     if (pattern[index] >= 0 && slice[index] > 0.) { */
+/*       /\* sum += ((-slice[index]) + *\/ */
+/*       /\* 	      ((int) pattern[index]) * logf(slice[index]) - *\/ */
+/*       /\* 	      log_factorial_table[(int) pattern[index]]); *\/ */
+/*       /\* sum += ((-slice[index]) + *\/ */
+/*       /\* 	      ((int) pattern[index]) * logf(slice[index]) - *\/ */
+/*       /\* 	      log_factorial_table[(int) pattern[index]]); *\/ */
+/*       sum += ((-slice[index]) + */
+/*       	      pattern[index] * logf(slice[index]) - */
+/*       	      log_factorial_table[pattern[index]]); */
+/*     } */
+/*   } */
+/*   sum_cache[threadIdx.x] = sum; */
+
+/*   inblock_reduce(sum_cache); */
+/*   if (threadIdx.x == 0) { */
+/*     responsabilities[index_slice*number_of_patterns + index_pattern] = sum_cache[0]; */
+/*   } */
+/* } */

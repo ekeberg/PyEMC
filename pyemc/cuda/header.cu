@@ -1,4 +1,7 @@
 //const int NTHREADS = 256;
+/* #include <stdio.h> */
+/* #include <stdlib.h> */
+/* #include <math.h> */
 
 template<typename T>
 __device__ void inblock_reduce(T * data){

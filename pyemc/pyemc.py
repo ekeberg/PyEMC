@@ -4,12 +4,16 @@ import os
 from eke import rotmodule
 import functools
 import inspect
+import enum
 
 _NTHREADS = 128
 MAX_PHOTON_COUNT = 200000
-_INTERPOLATION = {"nearest_neighbour": 0,
-                  "linear": 1}
+# _INTERPOLATION = {"nearest_neighbour": 0,
+#                   "linear": 1}
 
+class Interpolation(enum.Enum):
+    NEAREST = 1
+    LINEAR = 2
 
 def type_checked(*type_args):
     def decorator(func):
@@ -123,7 +127,7 @@ def import_kernels():
                                    ["kernel_expand_model",
                                     "kernel_insert_slices",
                                     "kernel_expand_model_2d",
-                                    "kernel_insert_slices_2d"])
+                                    "kernel_insert_slices_2d",])
     respons_kernels = import_cuda_file("calculate_responsabilities_cuda.cu",
                                        ["kernel_sum_slices",
                                         "kernel_calculate_responsabilities_poisson",
@@ -133,7 +137,8 @@ def import_kernels():
                                         "kernel_calculate_responsabilities_sparse_scaling",
                                         "kernel_calculate_responsabilities_sparse_per_pattern_scaling",
                                         "kernel_calculate_responsabilities_sparser",
-                                        "kernel_calculate_responsabilities_sparser_scaling",])
+                                        "kernel_calculate_responsabilities_sparser_scaling",
+                                        "kernel_calculate_responsabilities_gaussian"])
     scaling_kernels = import_cuda_file("calculate_scaling_cuda.cu",
                                        ["kernel_calculate_scaling_poisson",
                                         "kernel_calculate_scaling_poisson_sparse",
@@ -149,8 +154,10 @@ def import_kernels():
                                        "kernel_update_slices_sparse_scaling",
                                        "kernel_update_slices_sparse_per_pattern_scaling",
                                        "kernel_update_slices_sparser",
-                                       "kernel_update_slices_sparser_scaling",])
-    kernels = {**emc_kernels, **respons_kernels, **scaling_kernels, **slices_kernels}
+                                       "kernel_update_slices_sparser_scaling"])
+    tools_kernels = import_cuda_file("tools.cu",
+                                     ["kernel_blur_model"])
+    kernels = {**emc_kernels, **respons_kernels, **scaling_kernels, **slices_kernels, **tools_kernels}
     return kernels
 
 
@@ -162,8 +169,8 @@ def set_nthreads(nthreads):
 kernels = import_kernels()
 
 
-@type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32)
-def expand_model(model, slices, rotations, coordinates):
+@type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32, None)
+def expand_model(model, slices, rotations, coordinates, interpolation=Interpolation.LINEAR):
     if len(slices) != len(rotations):
         raise ValueError("Slices and rotations must be of the same length.")
     if len(model.shape) != 3:
@@ -179,11 +186,11 @@ def expand_model(model, slices, rotations, coordinates):
     kernels["kernel_expand_model"]((len(rotations), ), (_NTHREADS, ),
                                    (model, model.shape[2], model.shape[1], model.shape[0],
                                     slices, slices.shape[2], slices.shape[1],
-                                    rotations, coordinates))
+                                    rotations, coordinates, interpolation.value))
 
 
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32, cupy.float32, cupy.float32, None)
-def insert_slices(model, model_weights, slices, slice_weights, rotations, coordinates, interpolation="linear"):
+def insert_slices(model, model_weights, slices, slice_weights, rotations, coordinates, interpolation=Interpolation.LINEAR):
     if len(slices) != len(rotations):
         raise ValueError("slices and rotations must be of the same length.")
     if len(slices) != len(slice_weights):
@@ -199,12 +206,12 @@ def insert_slices(model, model_weights, slices, slice_weights, rotations, coordi
     if len(coordinates.shape) != 3 or coordinates.shape[0] != 3 or coordinates.shape[1:] != slices.shape[1:]:
         raise ValueError("coordinates must be 3xXxY array where X and Y are the dimensions of the slices.")
 
-    interpolation_int = _INTERPOLATION[interpolation]
+    # interpolation_int = _INTERPOLATION[interpolation]
     number_of_rotations = len(rotations)
     kernels["kernel_insert_slices"]((number_of_rotations, ), (_NTHREADS, ),
                                     (model, model_weights, model.shape[2], model.shape[1], model.shape[0],
                                      slices, slices.shape[2], slices.shape[1], slice_weights,
-                                     rotations, coordinates, interpolation_int))
+                                     rotations, coordinates, interpolation.value))
 
 
 def update_slices(slices, patterns, responsabilities, scalings=None):
@@ -349,7 +356,6 @@ def calculate_responsabilities_poisson(patterns, slices, responsabilities, scali
     else:
         # dense data
         calculate_responsabilities_poisson_dense(*arguments)
-
 
 @type_checked("dense", cupy.float32, cupy.float32, cupy.float32)
 def calculate_responsabilities_poisson_dense(patterns, slices, responsabilities, scalings=None):
@@ -624,7 +630,7 @@ def expand_model_2d(model, slices, rotations):
 
 
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32, cupy.float32, None)    
-def insert_slices_2d(model, model_weights, slices, slice_weights, rotations, interpolation="linear"):
+def insert_slices_2d(model, model_weights, slices, slice_weights, rotations, interpolation=Interpolation.LINEAR):
     if len(slices) != len(rotations):
         raise ValueError("slices and rotations must be of the same length.")
     if len(slices) != len(slice_weights):
@@ -638,12 +644,12 @@ def insert_slices_2d(model, model_weights, slices, slice_weights, rotations, int
     if len(rotations.shape) != 1:
         raise ValueError("Rotations must be a 1D array.")
 
-    interpolation_int = _INTERPOLATION[interpolation]
+    # interpolation_int = _INTERPOLATION[interpolation]
     number_of_rotations = len(rotations)
     kernels["kernel_insert_slices_2d"]((number_of_rotations, ), (_NTHREADS, ),
                                        (model, model_weights, model.shape[0], model.shape[1],
                                         slices, slices.shape[1], slices.shape[2], slice_weights,
-                                        rotations, interpolation_int))
+                                        rotations, interpolation.value))
 
 
 @type_checked(None, cupy.float32, cupy.float32, None)
@@ -653,6 +659,7 @@ def assemble_model(patterns, rotations, coordinates, shape=None):
     if isinstance(patterns, dict):
         raise NotImplementedError("assemble_model does not support sparse data")
     
+    # patterns = cupy.asarray(patterns, dtype="float32")
     patterns = cupy.asarray(patterns, dtype="float32")
     rotations = cupy.asarray(rotations, dtype="float32")
 
@@ -663,10 +670,33 @@ def assemble_model(patterns, rotations, coordinates, shape=None):
 
     insert_slices(model, model_weights, patterns,
                   slice_weights, rotations, coordinates)
-
+    
     bad_indices = model_weights == 0
     model /= model_weights
     model[bad_indices] = -1
 
     return model
 
+@type_checked(cupy.float32, None, None)
+def blur_model(model, sigma, cutoff):
+    print(f"python sigma = {sigma}")
+    tmp_model = cupy.zeros_like(model)
+    kernels["kernel_blur_model"]( (model.shape[0], model.shape[1]), (model.shape[2], ),
+                                  (tmp_model, model, cupy.float32(sigma), cutoff))
+    model[:] = tmp_model[:]
+    del tmp_model
+
+
+@type_checked(cupy.float32, cupy.float32, cupy.float32, None)
+def calculate_responsabilities_gaussian_dense(patterns, slices, responsabilities, sigma):
+    if len(patterns.shape) != 3: raise ValueError("patterns must be a 3D array")
+    if len(slices.shape) != 3: raise ValueError("slices must be a 3D array")
+    if patterns.shape[1:] != slices.shape[1:]: raise ValueError("patterns and images must be the same size 2D images")
+    if len(responsabilities.shape) != 2 or slices.shape[0] != responsabilities.shape[0] or patterns.shape[0] != responsabilities.shape[1]:
+        raise ValueError("responsabilities must have shape nrotations x npatterns")
+    patterns_max = patterns.max()
+    number_of_patterns = len(patterns)
+    number_of_rotations = len(slices)
+    kernels["kernel_calculate_responsabilities_gaussian"]((number_of_patterns, number_of_rotations), (_NTHREADS, ),
+                                                          (patterns, slices, slices.shape[2]*slices.shape[1],
+                                                           responsabilities, sigma))

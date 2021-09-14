@@ -59,7 +59,7 @@ def read_sparse_data(file_name, file_key=None, start_index=0, end_index=-1, outp
         if end_index == len(all_start_indices)-1 or end_index == -1:
             value_end_index = -1
         else:
-            value_end_index = all_start_indices[end_index+1]
+            value_end_index = all_start_indices[end_index]
         # if end_index == -1:
         #     end_index = len(all_start_indices)-1
 
@@ -91,8 +91,8 @@ def read_sparser_data(file_name, file_key=None, start_index=0, end_index=-1, out
             value_end_index = -1
             ones_end_index = -1
         else:
-            value_end_index = all_start_indices[end_index+1]
-            ones_end_index = all_ones_start_indices[end_index+1]
+            value_end_index = all_start_indices[end_index]
+            ones_end_index = all_ones_start_indices[end_index]
 
             
         if output_type.lower() == "numpy":
