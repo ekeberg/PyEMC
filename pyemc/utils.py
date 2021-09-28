@@ -119,7 +119,14 @@ def read_dense_data(file_name, file_key=None, start_index=0, end_index=-1, outpu
         raise ValueError(f"Argument output_array must be either numpy or cupy. Can't recognize: {output_array}")
 
     with h5py.File(file_name, "r") as file_handle:
-        patterns = output_module.asarray(file_handle[file_key][start_index:end_index, ...], dtype="int32")
+        patterns = file_handle[file_key][start_index:end_index, ...]
+        if patterns.dtype == numpy.dtype("int32") or patterns.dtype == numpy.dtype("int64"):
+            patterns = output_module.asarray(patterns, dtype="int32")
+        elif patterns.dtype == numpy.dtype("float32") or patterns.dtype == numpy.dtype("float64"):
+            patterns = output_module.asarray(patterns, dtype="float32")
+        else:
+            raise ValueError(f"Can't read data of type {patterns.dtype}")
+        # patterns = output_module.asarray(file_handle[file_key][start_index:end_index, ...], dtype="int32")
     return patterns
 
 def radial_average(image, mask=None):
