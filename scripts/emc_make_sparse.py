@@ -20,9 +20,12 @@ parameters = {}
 with h5py.File(args.input_file, "r") as file_handle:
     patterns = file_handle[args.input_key][...]
     # patterns = file_handle[args.input_key][:300]
-    parameters_group = file_handle["parameters"]
-    for key, value in parameters_group.items():
-        parameters[key] = value[...]
+    if "parameters" in file_handle.keys():
+        parameters_group = file_handle["parameters"]
+        for key, value in parameters_group.items():
+            parameters[key] = value[...]
+    else:
+        parameters = None
     if "rotations" in file_handle.keys():
         rotations = file_handle["rotations"][...]
     else:
@@ -51,7 +54,7 @@ if args.sparser:
         output_group.create_dataset("indices", data=numpy.array(sparse_patterns["indices"]))
         output_group.create_dataset("values", data=numpy.array(sparse_patterns["values"]))
         output_group.create_dataset("shape", data=sparse_patterns["shape"])
-        if "parameters" not in file_handle.keys():
+        if "parameters" not in file_handle.keys() and parameters != None:
             parameters_group = file_handle.create_group("parameters")
             for key, value in parameters.items():
                 parameters_group.create_dataset(key, data=value)
@@ -64,7 +67,7 @@ else:
         output_group.create_dataset("indices", data=numpy.array(sparse_patterns["indices"]))
         output_group.create_dataset("values", data=numpy.array(sparse_patterns["values"]))
         output_group.create_dataset("shape", data=sparse_patterns["shape"])
-        if "parameters" not in file_handle.keys():
+        if "parameters" not in file_handle.keys() and parameters != None:
             parameters_group = file_handle.create_group("parameters")
             for key, value in parameters.items():
                 parameters_group.create_dataset(key, data=value)
