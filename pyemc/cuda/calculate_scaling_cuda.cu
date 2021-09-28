@@ -1,8 +1,8 @@
 
-extern "C" __global__ void kernel_calculate_scaling_poisson(const float *const patterns,
-							    const float *const slices,
-							    float *const scaling,
-							    const int number_of_pixels) {
+__global__ void kernel_calculate_scaling_poisson(const float *const patterns,
+						 const float *const slices,
+						 float *const scaling,
+						 const int number_of_pixels) {
   const int index_pattern = blockIdx.x;
   const int index_slice = blockIdx.y;
   const int number_of_patterns = gridDim.x;
@@ -36,12 +36,12 @@ extern "C" __global__ void kernel_calculate_scaling_poisson(const float *const p
 }
 
 
-extern "C" __global__ void kernel_calculate_scaling_poisson_sparse(const int *const pattern_start_indices,
-								   const int *const pattern_indices,
-								   const int *const pattern_values,
-								   const float *const slices,
-								   float *const scaling,
-								   const int number_of_pixels) {
+__global__ void kernel_calculate_scaling_poisson_sparse(const int *const pattern_start_indices,
+							const int *const pattern_indices,
+							const int *const pattern_values,
+							const float *const slices,
+							float *const scaling,
+							const int number_of_pixels) {
   const int index_pattern = blockIdx.x;
   const int index_slice = blockIdx.y;
   const int number_of_patterns = gridDim.x;
@@ -83,14 +83,14 @@ extern "C" __global__ void kernel_calculate_scaling_poisson_sparse(const int *co
   }
 }
 
-extern "C" __global__ void kernel_calculate_scaling_poisson_sparser(const int *const pattern_start_indices,
-								    const int *const pattern_indices,
-								    const int *const pattern_values,
-								    const int *const pattern_ones_start_indices,
-								    const int *const pattern_ones_indices,
-								    const float *const slices,
-								    float *const scaling,
-								    const int number_of_pixels) {
+__global__ void kernel_calculate_scaling_poisson_sparser(const int *const pattern_start_indices,
+							 const int *const pattern_indices,
+							 const int *const pattern_values,
+							 const int *const pattern_ones_start_indices,
+							 const int *const pattern_ones_indices,
+							 const float *const slices,
+							 float *const scaling,
+							 const int number_of_pixels) {
   const int index_pattern = blockIdx.x;
   const int index_slice = blockIdx.y;
   const int number_of_patterns = gridDim.x;
@@ -142,12 +142,12 @@ extern "C" __global__ void kernel_calculate_scaling_poisson_sparser(const int *c
   }
 }
 
-extern "C" __global__ void kernel_calculate_scaling_per_pattern_poisson(const float *const patterns,
-									const float *const slices,
-									const float *const responsabilities,
-									float *const scaling,
-									const int number_of_pixels,
-									const int number_of_rotations) {
+__global__ void kernel_calculate_scaling_per_pattern_poisson(const float *const patterns,
+							     const float *const slices,
+							     const float *const responsabilities,
+							     float *const scaling,
+							     const int number_of_pixels,
+							     const int number_of_rotations) {
   const int index_pattern = blockIdx.x;
   const int number_of_patterns = gridDim.x;
 
@@ -182,14 +182,14 @@ extern "C" __global__ void kernel_calculate_scaling_per_pattern_poisson(const fl
 }
 
 
-extern "C" __global__ void kernel_calculate_scaling_per_pattern_poisson_sparse(const int *const pattern_start_indices,
-									       const int *const pattern_indices,
-									       const float *const pattern_values,
-									       const float *const slices,
-									       const float *const responsabilities,
-									       float *const scaling,
-									       const int number_of_pixels,
-									       const int number_of_rotations) {
+__global__ void kernel_calculate_scaling_per_pattern_poisson_sparse(const int *const pattern_start_indices,
+								    const int *const pattern_indices,
+								    const float *const pattern_values,
+								    const float *const slices,
+								    const float *const responsabilities,
+								    float *const scaling,
+								    const int number_of_pixels,
+								    const int number_of_rotations) {
   const int index_pattern = blockIdx.x;
   const int number_of_patterns = gridDim.x;
 

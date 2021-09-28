@@ -5,7 +5,7 @@ import socket
 # import emc
 # import afnumpy
 from eke import tools
-    
+
 # if "MPI_SIZE" in os.environ:
 #     from ._mpi import *
 # else:

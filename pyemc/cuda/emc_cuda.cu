@@ -1,3 +1,8 @@
+__device__ void foo() // Dummy function used to suppress NTHREADS warning
+{
+  printf("%i\n", NTHREADS);
+}
+	 
 __device__ void device_interpolate_get_coordinate_weight(const float coordinate,
 							 const int side,
 							 int *low_coordinate,
@@ -157,16 +162,16 @@ __device__ void device_get_slice(const float *const model,
   }
 }
 
-extern "C" __global__ void kernel_expand_model(const float *const model,
-					       const int model_x,
-					       const int model_y,
-					       const int model_z,
-					       float *const slices,
-					       const int image_x,
-					       const int image_y,
-					       const float *const rotations,
-					       const float *const coordinates,
-					       const int interpolation)
+__global__ void kernel_expand_model(const float *const model,
+				    const int model_x,
+				    const int model_y,
+				    const int model_z,
+				    float *const slices,
+				    const int image_x,
+				    const int image_y,
+				    const float *const rotations,
+				    const float *const coordinates,
+				    const int interpolation)
 {
   const int rotation_index = blockIdx.x;
   device_get_slice(model,
@@ -329,18 +334,18 @@ __device__ void device_insert_slice(float *const model,
 }
 
 
-extern "C" __global__ void kernel_insert_slices(float *const model,
-						float *const model_weights,
-						const int model_x,
-						const int model_y,
-						const int model_z,
-						const float *const slices,
-						const int image_x,
-						const int image_y,
-						const float *const slice_weights,
-						const float *const rotations,
-						const float *const coordinates,
-						const int interpolation) {
+__global__ void kernel_insert_slices(float *const model,
+				     float *const model_weights,
+				     const int model_x,
+				     const int model_y,
+				     const int model_z,
+				     const float *const slices,
+				     const int image_x,
+				     const int image_y,
+				     const float *const slice_weights,
+				     const float *const rotations,
+				     const float *const coordinates,
+				     const int interpolation) {
   const int rotation_index = blockIdx.x;
   device_insert_slice(model,
 		      model_weights,
@@ -525,9 +530,12 @@ __global__ void kernel_rotate_model(const float *const model,
 
   if (index < model_x*model_y*model_z) {
 
-    float start_x = ((float) ((index % (model_x*model_y)) % model_x)) - model_x/2. + 0.5;
+    /* model[model_z*model_y*index_x + model_z*index_y + index_z] */
+    
+
+    float start_z = ((float) ((index % (model_x*model_y)) % model_x)) - model_x/2. + 0.5;
     float start_y = ((float) ((index / model_x) % model_y)) - model_y/2. + 0.5;
-    float start_z = ((float) (index / (model_x*model_y))) - model_z/2. + 0.5;
+    float start_x = ((float) (index / (model_x*model_y))) - model_z/2. + 0.5;
 
     /*
       float start_x = ((float) ((index % (model_x*model_y)) % model_x));
@@ -696,13 +704,13 @@ __device__ void device_get_slice_2d(const float *const model,
   }
 }
 
-extern "C" __global__ void kernel_expand_model_2d(const float *const model,
-						  const int model_x,
-						  const int model_y,
-						  float *const slices,
-						  const int image_x,
-						  const int image_y,
-						  const float *const rotations)
+__global__ void kernel_expand_model_2d(const float *const model,
+				       const int model_x,
+				       const int model_y,
+				       float *const slices,
+				       const int image_x,
+				       const int image_y,
+				       const float *const rotations)
 {
   const int rotation_index = blockIdx.x;
   device_get_slice_2d(model,
@@ -761,16 +769,16 @@ __device__ void device_insert_slice_2d(float *const model,
   }
 }
 
-extern "C" __global__ void kernel_insert_slices_2d(float *const model,
-						   float *const model_weights,
-						   const int model_x,
-						   const int model_y,
-						   const float *const slices,
-						   const int image_x,
-						   const int image_y,
-						   const float *const slice_weights,
-						   const float *const rotations,
-						   const int interpolation) {
+__global__ void kernel_insert_slices_2d(float *const model,
+					float *const model_weights,
+					const int model_x,
+					const int model_y,
+					const float *const slices,
+					const int image_x,
+					const int image_y,
+					const float *const slice_weights,
+					const float *const rotations,
+					const int interpolation) {
   const int rotation_index = blockIdx.x;
   device_insert_slice_2d(model,
 			 model_weights,
@@ -784,6 +792,52 @@ extern "C" __global__ void kernel_insert_slices_2d(float *const model,
 			 interpolation);
 }
 
+
+/* __global__ void kernel_rotate_model(const float *const model, */
+/* 				    float *const rotated_model, */
+/* 				    const int model_x, */
+/* 				    const int model_y, */
+/* 				    const int model_z, */
+/* 				    const float *const rotation) { */
+  
+/*   __shared__ float rotation_matrix[9]; */
+/*   int index = blockIdx.x*blockDim.x + threadIdx.x; */
+  
+/*   if (threadIdx.x == 0) { */
+/*     rotation_matrix[0] = rotation[0]*rotation[0] + rotation[1]*rotation[1] - rotation[2]*rotation[2] - rotation[3]*rotation[3]; // 00 */
+/*     rotation_matrix[1] = 2.0f*rotation[1]*rotation[2] - 2.0f*rotation[0]*rotation[3]; // 01 */
+/*     rotation_matrix[2] = 2.0f*rotation[1]*rotation[3] + 2.0f*rotation[0]*rotation[2]; // 02 */
+/*     rotation_matrix[3] = 2.0f*rotation[1]*rotation[2] + 2.0f*rotation[0]*rotation[3]; // 10 */
+/*     rotation_matrix[4] = rotation[0]*rotation[0] - rotation[1]*rotation[1] + rotation[2]*rotation[2] - rotation[3]*rotation[3]; // 11 */
+/*     rotation_matrix[5] = 2.0f*rotation[2]*rotation[3] - 2.0f*rotation[0]*rotation[1]; // 12 */
+/*     rotation_matrix[6] = 2.0f*rotation[1]*rotation[3] - 2.0f*rotation[0]*rotation[2]; // 20 */
+/*     rotation_matrix[7] = 2.0f*rotation[2]*rotation[3] + 2.0f*rotation[0]*rotation[1]; // 21 */
+/*     rotation_matrix[8] = rotation[0]*rotation[0] - rotation[1]*rotation[1] - rotation[2]*rotation[2] + rotation[3]*rotation[3]; // 22 */
+/*   } */
+/*   __syncthreads(); */
+
+/*   if (index < model_x*model_y*model_z) { */
+
+/*     float start_x = ((float) ((index % (model_x*model_y)) % model_x)) - model_x/2. + 0.5; */
+/*     float start_y = ((float) ((index / model_x) % model_y)) - model_y/2. + 0.5; */
+/*     float start_z = ((float) (index / (model_x*model_y))) - model_z/2. + 0.5; */
+    
+/*     float new_x, new_y, new_z; */
+/*     /\* This is just a matrix multiplication with rotation *\/ */
+/*     new_x = model_x/2. - 0.5 + (rotation_matrix[0]*start_x + */
+/* 				rotation_matrix[1]*start_y + */
+/* 				rotation_matrix[2]*start_z); */
+/*     new_y = model_y/2. - 0.5 + (rotation_matrix[3]*start_x + */
+/* 				rotation_matrix[4]*start_y + */
+/* 				rotation_matrix[5]*start_z); */
+/*     new_z = model_z/2. - 0.5 + (rotation_matrix[6]*start_x + */
+/* 				rotation_matrix[7]*start_y + */
+/* 				rotation_matrix[8]*start_z); */
+/*     rotated_model[index] = device_model_get(model, */
+/* 					    model_x, model_y, model_z, */
+/* 					    new_x, new_y, new_z); */
+/*   } */
+/* } */
 
 /* __device__ float device_model_2dget(const float *const model, */
 /* 				    const int model_x, */
