@@ -6,24 +6,7 @@ import argparse
 import re
 from eke import conversions
 from eke import sphelper
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument("patterns", type=str)
-parser.add_argument("rotations", type=str)
-parser.add_argument("photon_energy", type=float)
-parser.add_argument("detector_distance", type=float)
-parser.add_argument("pixel_size", type=float)
-parser.add_argument("output_file", type=str)
-parser.add_argument("--number_of_patterns", type=int, default=0)
-
-args = parser.parse_args()
-
-wavelength = conversions.ev_to_m(args.photon_energy)
-
-
-if args.number_of_patterns != 0:
-    raise NotImplementedError("Can't specify number of patterns")
+# from eke import rotmodule
 
 def split_file_and_key(string):
     file_name, key = re.search("^(.+\.h5)(/.+)?$", string).groups()
@@ -42,8 +25,22 @@ def get_number_of_patterns(file_name, key):
             return len(data_handle)
         else:
             return len(data_handle["start_indices"])-1
-        
-        
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("patterns", type=str)
+parser.add_argument("rotations", type=str)
+parser.add_argument("photon_energy", type=float)
+parser.add_argument("detector_distance", type=float)
+parser.add_argument("pixel_size", type=float)
+parser.add_argument("output_file", type=str)
+parser.add_argument("--number_of_patterns", type=int, default=0)
+parser.add_argument("--inverse", action="store_true")
+
+args = parser.parse_args()
+
+wavelength = conversions.ev_to_m(args.photon_energy)
+
 
 #print(args.input_file)
 patterns_file, patterns_key = split_file_and_key(args.patterns)
@@ -52,15 +49,23 @@ rotations_file, rotations_key = split_file_and_key(args.rotations)
 if patterns_key == None or rotations_key == None:
     raise ValueError(f"Must provide a location in the hdf5 file: file.h5/location")
 
+number_of_patterns = get_number_of_patterns(patterns_file, patterns_key)
 
-patterns_reader = pyemc.DataReader(number_of_patterns=get_number_of_patterns(patterns_file, patterns_key))
+if args.number_of_patterns != 0:
+    number_of_patterns = min(args.number_of_patterns, number_of_patterns)
+    # raise NotImplementedError("Can't specify number of patterns")
+
+patterns_reader = pyemc.DataReader(number_of_patterns=number_of_patterns)
 patterns = patterns_reader.read_patterns(patterns_file, patterns_key)
 patterns = cupy.asarray(patterns, dtype="float32")
 
 with h5py.File(rotations_file, "r") as file_handle:
-    rotations = file_handle[rotations_key][...]
+    rotations = file_handle[rotations_key][:number_of_patterns]
 rotations = cupy.asarray(rotations, dtype="float32")
-    
+if args.inverse:
+    rotations[:, 1:] = -rotations[:, 1:]
+
+
 coordinates = pyemc.ewald_coordinates(pattern_shape(patterns), wavelength, args.detector_distance, args.pixel_size)
 
 assembled = pyemc.assemble_model(patterns, rotations, coordinates).get()
