@@ -7,8 +7,8 @@ def ewald_coordinates(image_shape, wavelength, detector_distance, pixel_size,
                       edge_distance=None, output_type="cupy"):
     if edge_distance is None:
         edge_distance = image_shape[0]/2.
-    x_pixels_1d = numpy.arange(image_shape[1], dtype="float32") - image_shape[1]/2. + 0.5
-    y_pixels_1d = numpy.arange(image_shape[0], dtype="float32") - image_shape[0]/2. + 0.5
+    x_pixels_1d = numpy.arange(image_shape[1], dtype="float64") - image_shape[1]/2. + 0.5
+    y_pixels_1d = numpy.arange(image_shape[0], dtype="float64") - image_shape[0]/2. + 0.5
     y_pixels, x_pixels = numpy.meshgrid(y_pixels_1d, x_pixels_1d, indexing="ij")
     x_meters = x_pixels*pixel_size
     y_meters = y_pixels*pixel_size
@@ -24,10 +24,10 @@ def ewald_coordinates(image_shape, wavelength, detector_distance, pixel_size,
     x[radius_meters == 0.] = 0.
     y[radius_meters == 0.] = 0.
 
-    output_coordinates = numpy.zeros((3, ) + image_shape)
-    output_coordinates[0, :, :] = x
-    output_coordinates[1, :, :] = y
-    output_coordinates[2, :, :] = z
+    output_coordinates = numpy.zeros((3, ) + image_shape, dtype="float32")
+    output_coordinates[0, :, :] = numpy.float32(x)
+    output_coordinates[1, :, :] = numpy.float32(y)
+    output_coordinates[2, :, :] = numpy.float32(z)
 
     # Rescale so that edge pixels match.
     furthest_edge_coordinate = numpy.sqrt(x[0, image_shape[1]//2]**2 + y[0, image_shape[1]//2]**2 + z[0, image_shape[1]//2]**2)
