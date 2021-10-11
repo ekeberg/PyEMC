@@ -1,5 +1,5 @@
 
-__global__ void kernel_calculate_scaling_poisson(const float *const patterns,
+__global__ void kernel_calculate_scaling_poisson(const int *const patterns,
 						 const float *const slices,
 						 float *const scaling,
 						 const int number_of_pixels) {
@@ -7,7 +7,7 @@ __global__ void kernel_calculate_scaling_poisson(const float *const patterns,
   const int index_slice = blockIdx.y;
   const int number_of_patterns = gridDim.x;
 
-  const float *const pattern = &patterns[number_of_pixels*index_pattern];
+  const int *const pattern = &patterns[number_of_pixels*index_pattern];
   const float *const slice = &slices[number_of_pixels*index_slice];
 
   float sum_slice = 0.;
@@ -142,7 +142,7 @@ __global__ void kernel_calculate_scaling_poisson_sparser(const int *const patter
   }
 }
 
-__global__ void kernel_calculate_scaling_per_pattern_poisson(const float *const patterns,
+__global__ void kernel_calculate_scaling_per_pattern_poisson(const int *const patterns,
 							     const float *const slices,
 							     const float *const responsabilities,
 							     float *const scaling,
@@ -151,7 +151,7 @@ __global__ void kernel_calculate_scaling_per_pattern_poisson(const float *const 
   const int index_pattern = blockIdx.x;
   const int number_of_patterns = gridDim.x;
 
-  const float *const pattern = &patterns[number_of_pixels*index_pattern];
+  const int *const pattern = &patterns[number_of_pixels*index_pattern];
 
   float sum_nominator = 0.;
   float sum_denominator = 0.;
