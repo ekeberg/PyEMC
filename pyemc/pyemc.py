@@ -5,6 +5,8 @@ from eke import rotmodule
 import functools
 import inspect
 import enum
+import time
+from collections import defaultdict
 
 _NTHREADS = 128
 MAX_PHOTON_COUNT = 200000
@@ -70,6 +72,28 @@ def type_checked(*type_args):
         return new_func
     return decorator
 
+# def timed():
+# def decorator(func):
+def timed(func):
+    func_signature = inspect.signature(func)
+
+    @functools.wraps(func)
+    def new_func(*args, **kwargs):
+        bound_arguments_no_default = func_signature.bind(*args, **kwargs)
+        bound_arguments = func_signature.bind(*args, **kwargs)
+        bound_arguments.apply_defaults()
+        args = bound_arguments.args
+        
+        timer.start(func.__name__)
+        ret = func(*args)
+        cupy.cuda.stream.get_current_stream().synchronize()
+        timer.stop()
+
+        return ret
+    return new_func
+#     return decorator
+        
+
 
 class LogFactorialTable:
     def __init__(self):
@@ -107,6 +131,58 @@ class SliceSums:
         return self._array[:self._last_size]
 slice_sums = SliceSums()
 
+
+class Timer:
+    def __init__(self):
+        self._records = defaultdict(lambda: 0)
+    
+    def start(self, name):
+        self._current = name
+        self._start = time.time()
+
+    def stop(self):
+        self._records[self._current] += time.time() - self._start
+        self._current = None
+        self._start = None
+
+    def get_total(self):
+        return self._records
+
+    def print_per_process(self, mpi):
+        for this_rank in range(mpi.size()):
+            if mpi.rank() == this_rank:
+                print(f"Timing {this_rank}:")
+                for n, v in timer.get_total().items():
+                    print(f"{n}: {v}")
+                print("")
+            mpi.comm.Barrier()
+
+    def print_single(self):
+        print(f"Timing:")
+        for n, v in timer.get_total().items():
+            print(f"{n}: {v}")
+
+    def print_total(self, mpi):
+        if not mpi.mpi_on:
+            self.print_single()
+            return
+        
+        if mpi.is_master():
+            print(f"Timing total:")
+        new_dict = {}
+        for n, v in timer.get_total().items():
+            tot_v = mpi.comm.reduce(v, root=0)
+            if mpi.is_master():
+                print(f"{n}: {tot_v}")
+            
+
+timer = Timer()
+
+def print_timing(mpi=None):
+    if mpi is None or mpi.mpi_on:
+        timer.print_single()
+    else:
+        timer.print_total(mpi)
 
 def import_cuda_file(file_name, kernel_names, absolute_path=False):
     # nthreads = 128
@@ -320,6 +396,7 @@ def check_patterns(patterns, npatterns, shape):
     else:
         raise ValueError("Invalid pattern format")
 
+@timed
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32, None)
 def expand_model(model, slices, rotations, coordinates, interpolation=Interpolation.LINEAR):
     check_model(model)
@@ -333,6 +410,7 @@ def expand_model(model, slices, rotations, coordinates, interpolation=Interpolat
                                     slices, slices.shape[2], slices.shape[1],
                                     rotations, coordinates, interpolation.value))
 
+@timed
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32, cupy.float32, cupy.float32, None)
 def insert_slices(model, model_weights, slices, slice_weights, rotations, coordinates, interpolation=Interpolation.LINEAR):
     check_model(model)
@@ -349,7 +427,7 @@ def insert_slices(model, model_weights, slices, slice_weights, rotations, coordi
                                      slices, slices.shape[2], slices.shape[1], slice_weights,
                                      rotations, coordinates, interpolation.value))
 
-
+@timed
 def update_slices(slices, patterns, responsabilities, scalings=None):
     arguments = (slices, patterns, responsabilities) + ((scalings, ) if scalings is not None else ())
 
@@ -482,7 +560,7 @@ def update_slices_dense_float(slices, patterns, responsabilities, scalings=None)
                                                              patterns.shape[2]*patterns.shape[1],
                                                              responsabilities, scalings))
 
-
+@timed
 def calculate_responsabilities_poisson(patterns, slices, responsabilities, scalings=None):
     arguments = (patterns, slices, responsabilities) + ((scalings, ) if scalings is not None else ())
     if isinstance(patterns, dict):
@@ -597,6 +675,7 @@ def calculate_responsabilities_poisson_sparser(patterns, slices, responsabilitie
         #                                                                          calculate_responsabilities_poisson_sparser.log_factorial_table))
 
 
+@timed
 def calculate_scaling_poisson(patterns, slices, scaling):
     if isinstance(patterns, dict):
         # patterns are spares
@@ -717,7 +796,7 @@ def insert_slices_2d(model, model_weights, slices, slice_weights, rotations, int
                                         slices, slices.shape[1], slices.shape[2], slice_weights,
                                         rotations, interpolation.value))
 
-
+@timed
 @type_checked(None, cupy.float32, cupy.float32, None)
 def assemble_model(patterns, rotations, coordinates, shape=None):
     slice_weights = cupy.ones(len(rotations), dtype="float32")
@@ -743,6 +822,7 @@ def assemble_model(patterns, rotations, coordinates, shape=None):
 
     return model
 
+@timed
 @type_checked(cupy.float32, None, None)
 def blur_model(model, sigma, cutoff):
     tmp_model = cupy.zeros_like(model)
@@ -751,6 +831,7 @@ def blur_model(model, sigma, cutoff):
     model[:] = tmp_model[:]
     del tmp_model
 
+@timed
 @type_checked(cupy.float32, cupy.float32)
 def rotate_model(model, rotation):
     if rotation.shape != (4, ):
