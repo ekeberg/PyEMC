@@ -72,6 +72,53 @@ def type_checked(*type_args):
         return new_func
     return decorator
 
+class Timer:
+    def __init__(self):
+        self._records = defaultdict(lambda: 0)
+        self._start = defaultdict(lambda: None)
+    
+    def start(self, name):
+        self._start[name] = time.time()
+
+    def stop(self, name):
+        if self._start[name] is None:
+            raise ValueError(f"Trying to stop inactive timer: {name}")
+        self._records[name] += time.time() - self._start[name]
+        self._start[name] = None
+
+    def get_total(self):
+        return self._records
+
+    def print_per_process(self, mpi):
+        for this_rank in range(mpi.size()):
+            if mpi.rank() == this_rank:
+                print(f"Timing {this_rank}:")
+                for n, v in timer.get_total().items():
+                    print(f"{n}: {v}")
+                print("")
+            mpi.comm.Barrier()
+
+    def print_single(self):
+        print(f"Timing:")
+        for n, v in timer.get_total().items():
+            print(f"{n}: {v}")
+
+    def print_total(self, mpi):
+        if not mpi.mpi_on:
+            self.print_single()
+            return
+        
+        if mpi.is_master():
+            print(f"Timing total:")
+        new_dict = {}
+        for n, v in timer.get_total().items():
+            tot_v = mpi.comm.reduce(v, root=0)
+            if mpi.is_master():
+                print(f"{n}: {tot_v}")
+            
+
+timer = Timer()
+
 # def timed():
 # def decorator(func):
 def timed(func):
@@ -87,7 +134,7 @@ def timed(func):
         timer.start(func.__name__)
         ret = func(*args)
         cupy.cuda.stream.get_current_stream().synchronize()
-        timer.stop()
+        timer.stop(func.__name__)
 
         return ret
     return new_func
@@ -132,51 +179,6 @@ class SliceSums:
 slice_sums = SliceSums()
 
 
-class Timer:
-    def __init__(self):
-        self._records = defaultdict(lambda: 0)
-    
-    def start(self, name):
-        self._current = name
-        self._start = time.time()
-
-    def stop(self):
-        self._records[self._current] += time.time() - self._start
-        self._current = None
-        self._start = None
-
-    def get_total(self):
-        return self._records
-
-    def print_per_process(self, mpi):
-        for this_rank in range(mpi.size()):
-            if mpi.rank() == this_rank:
-                print(f"Timing {this_rank}:")
-                for n, v in timer.get_total().items():
-                    print(f"{n}: {v}")
-                print("")
-            mpi.comm.Barrier()
-
-    def print_single(self):
-        print(f"Timing:")
-        for n, v in timer.get_total().items():
-            print(f"{n}: {v}")
-
-    def print_total(self, mpi):
-        if not mpi.mpi_on:
-            self.print_single()
-            return
-        
-        if mpi.is_master():
-            print(f"Timing total:")
-        new_dict = {}
-        for n, v in timer.get_total().items():
-            tot_v = mpi.comm.reduce(v, root=0)
-            if mpi.is_master():
-                print(f"{n}: {tot_v}")
-            
-
-timer = Timer()
 
 def print_timing(mpi=None):
     if mpi is None or mpi.mpi_on:
