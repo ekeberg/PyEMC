@@ -12,6 +12,13 @@ from eke import tools
 #     import warnings
 #     warnings.warn("Not running MPI. Only importing dummy mpi classes.")
 
+def mpi_is_running():
+    if ("MPI_LOCALNRANKS" in os.environ or
+        "OMPI_COMM_WORLD_SIZE" in os.environ):
+        return True
+    else:
+        return False
+    
 class MpiBase:
     def __init__(self):
         pass
@@ -127,13 +134,14 @@ class MpiDistNoMpi(MpiDistBase):
     def distribute_gpus(self):
         pass
 
+def get_default_mpi():
+    raise NotImplementedError("Sorry")
+
+    
 # This import sadly must happen after the above definitions, since they are in turn needed from _mpi.
 
-try:
+if mpi_is_running():
     from mpi4py import MPI
     from ._mpi import *
-except ImportError:
-    import warnings
-    warnings.warn("Not running MPI. Only importing dummy mpi classes.")
 
 # from ._mpi import *

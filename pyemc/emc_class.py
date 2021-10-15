@@ -1,25 +1,12 @@
 import os
-try:
-    from mpi4py import MPI
-except ImportError:
-    pass
 import numpy
 import h5py
-# import emc_mpi_tools
 import rotsampling
 import cupy
+import os
 from . import pyemc
 from . import mpi as mpi_module
 from . import utils
-
-# def dataset_format(patterns):
-#     if isinstance(patterns, dict) or isinstance(patterns, h5py.Group):
-#         if "ones_start_indices" in patterns:
-#             return "sparser"
-#         else:
-#             return "sparse"
-#     else:
-#         return "dense"
 
     
 class DataReader:
@@ -35,7 +22,7 @@ class DataReader:
     def read_patterns(self, file_name, file_loc):
         with h5py.File(file_name, "r") as file_handle:
             file_location = file_handle[file_loc]
-            data_type = pyemc.pattern_type(patterns)
+            data_type = pyemc.pattern_type(file_location)
             # data_type = dataset_format(file_location)
         load_functions = {pyemc.PatternType.DENSE: utils.read_dense_data,
                           pyemc.PatternType.SPARSE: utils.read_sparse_data,
@@ -53,6 +40,10 @@ class EMC:
         else:
             self._mpi = mpi_module.MpiDistNoMpi()
 
+        if mpi.mpi_on:
+            self._mpi_flags = {"SUM": mpi_module.MPI.SUM,
+                               "MAX": mpi_module.MPI.MAX}
+            
         self._rescale = bool(rescale)
 
         self._quiet = bool(quiet)
@@ -197,8 +188,8 @@ class EMC:
         if self._mpi.mpi_on:
             resp_global_max = numpy.empty(self._number_of_patterns, dtype="float32")
             resp_global_sum = numpy.empty(self._number_of_patterns, dtype="float32")
-            self._mpi.comm_rot.Reduce(self._responsabilities_cpu.max(axis=0), resp_global_max, op=MPI.MAX, root=0)
-            self._mpi.comm_rot.Reduce(self._responsabilities_cpu.sum(axis=0), resp_global_sum, op=MPI.SUM, root=0)
+            self._mpi.comm_rot.Reduce(self._responsabilities_cpu.max(axis=0), resp_global_max, op=self._mpi_flags["MAX"], root=0)
+            self._mpi.comm_rot.Reduce(self._responsabilities_cpu.sum(axis=0), resp_global_sum, op=self._mpi_flags["SUM"], root=0)
         else:
             resp_global_max = self._responsabilities_cpu.max(axis=0)
             resp_global_sum = self._responsabilities_cpu.sum(axis=0)
@@ -304,7 +295,7 @@ class EMC:
         # if self._mpi.is_master(): print("Share max")
         if self._mpi.mpi_on:
             self._mpi_buffers["resp_1"][...] = self._responsabilities_cpu.max(axis=0)
-            self._mpi.comm_rot.Allreduce(self._mpi_buffers["resp_1"], self._mpi_buffers["resp_2"], op=MPI.MAX)
+            self._mpi.comm_rot.Allreduce(self._mpi_buffers["resp_1"], self._mpi_buffers["resp_2"], op=self._mpi_flags["MAX"])
             resp_max = self._mpi_buffers["resp_2"]
         else:
             resp_max = self._responsabilities_cpu.max(axis=0)
@@ -323,7 +314,7 @@ class EMC:
         # if self._mpi.is_master(): print("Share sum")
         if self._mpi.mpi_on:
             self._mpi_buffers["resp_1"][...] = self._responsabilities_cpu.sum(axis=0)
-            self._mpi.comm_rot.Allreduce(self._mpi_buffers["resp_1"], self._mpi_buffers["resp_2"], op=MPI.SUM)
+            self._mpi.comm_rot.Allreduce(self._mpi_buffers["resp_1"], self._mpi_buffers["resp_2"], op=self._mpi_flags["SUM"])
             resp_sum = self._mpi_buffers["resp_2"]
         else:
             resp_sum = self._responsabilities_cpu.sum(axis=0)
@@ -370,11 +361,11 @@ class EMC:
 
             if self._mpi.mpi_on:
                 self._mpi_buffers["model_1"][...] = self._model[model_index].get()
-                self._mpi.comm.Allreduce(self._mpi_buffers["model_1"], self._mpi_buffers["model_2"], op=MPI.SUM)
+                self._mpi.comm.Allreduce(self._mpi_buffers["model_1"], self._mpi_buffers["model_2"], op=self._mpi_flags["SUM"])
                 self._model[model_index][...] = cupy.asarray(self._mpi_buffers["model_2"], dtype="float32")
             
                 self._mpi_buffers["model_1"][...] = self._model_weight[model_index].get()
-                self._mpi.comm.Allreduce(self._mpi_buffers["model_1"], self._mpi_buffers["model_2"], op=MPI.SUM)
+                self._mpi.comm.Allreduce(self._mpi_buffers["model_1"], self._mpi_buffers["model_2"], op=self._mpi_flags["SUM"])
                 self._model_weight[model_index][...] = cupy.asarray(self._mpi_buffers["model_2"], dtype="float32")
             else:
                 pass # No need to average models when MPI is off.
@@ -486,9 +477,9 @@ class EMC:
     
     def get_average_best_resp(self):
         if self._mpi.mpi_on:
-            self._mpi.comm_rot.Reduce(self._responsabilities_cpu.max(axis=0), self._mpi_buffers["resp_2"], op=MPI.MAX, root=0)
+            self._mpi.comm_rot.Reduce(self._responsabilities_cpu.max(axis=0), self._mpi_buffers["resp_2"], op=self._mpi_flags["MAX"], root=0)
             if self._mpi.is_rot_master():
-                best_resp_mean = self._mpi.comm_pattern.reduce(self._mpi_buffers["resp_2"].sum(), op=MPI.SUM)
+                best_resp_mean = self._mpi.comm_pattern.reduce(self._mpi_buffers["resp_2"].sum(), op=self._mpi_flags["SUM"])
                 if self._mpi.is_master():
                     return best_resp_mean / self._mpi.total_number_of_patterns
             return None
