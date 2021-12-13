@@ -33,7 +33,6 @@ __global__ void kernel_calculate_responsabilities_poisson(const int* const patte
   }
 }
 
-
 __global__ void kernel_calculate_responsabilities_poisson_scaling(const int *const patterns,
 								  const float *const slices,
 								  const int number_of_pixels,

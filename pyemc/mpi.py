@@ -1,24 +1,17 @@
 import numpy
 import os
-# from mpi4py import MPI
-import socket
-# import emc
-# import afnumpy
-from eke import tools
 
-# if "MPI_SIZE" in os.environ:
-#     from ._mpi import *
-# else:
-#     import warnings
-#     warnings.warn("Not running MPI. Only importing dummy mpi classes.")
 
 def mpi_is_running():
-    if ("MPI_LOCALNRANKS" in os.environ or
-        "OMPI_COMM_WORLD_SIZE" in os.environ):
+    if (
+            "MPI_LOCALNRANKS" in os.environ or
+            "OMPI_COMM_WORLD_SIZE" in os.environ
+    ):
         return True
     else:
         return False
-    
+
+
 class MpiBase:
     def __init__(self):
         pass
@@ -36,6 +29,7 @@ class MpiBase:
 
     def distribute_gpus(self):
         pass
+
 
 class MpiDistBase(MpiBase):
     def __init__(self):
@@ -67,7 +61,7 @@ class MpiDistBase(MpiBase):
 
     def local_number_of_rotations(self):
         pass
-        
+
     def local_number_of_patterns(self):
         pass
 
@@ -76,17 +70,17 @@ class MpiDistBase(MpiBase):
 
     def pattern_slice(self):
         pass
-    
 
-        
+
 class MpiDistNoMpi(MpiDistBase):
     def __init__(self):
         super().__init__()
         self.mpi_on = False
-    
+
     def set_number_of_rotations(self, number_of_rotations):
         self.total_number_of_rotations = number_of_rotations
-        self.number_of_rotations = numpy.array([self.total_number_of_rotations])
+        self.number_of_rotations = numpy.array(
+            [self.total_number_of_rotations])
 
     def set_number_of_patterns(self, number_of_patterns):
         self.total_number_of_patterns = number_of_patterns
@@ -124,21 +118,23 @@ class MpiDistNoMpi(MpiDistBase):
 
     def local_number_of_patterns(self):
         return self.total_number_of_patterns
-    
+
     def rotation_slice(self):
         return slice(0, self.total_number_of_rotations)
 
     def pattern_slice(self):
         return slice(0, self.total_number_of_patterns)
-    
+
     def distribute_gpus(self):
         pass
+
 
 def get_default_mpi():
     raise NotImplementedError("Sorry")
 
-    
-# This import sadly must happen after the above definitions, since they are in turn needed from _mpi.
+
+# This import sadly must happen after the above definitions, since
+# they are in turn needed from _mpi.
 
 if mpi_is_running():
     from mpi4py import MPI
