@@ -4,9 +4,9 @@ import os
 import functools
 import inspect
 import enum
-import time
 from collections import defaultdict
-
+from .cuda_kernels import kernels
+from . import timing
 
 _NTHREADS = 128
 MAX_PHOTON_COUNT = 200000
@@ -115,74 +115,10 @@ def type_checked(*type_args):
     return decorator
 
 
-class Timer:
-    def __init__(self):
-        self._records = defaultdict(lambda: 0)
-        self._start = defaultdict(lambda: None)
-
-    def start(self, name):
-        self._start[name] = time.time()
-
-    def stop(self, name):
-        if self._start[name] is None:
-            raise ValueError(f"Trying to stop inactive timer: {name}")
-        self._records[name] += time.time() - self._start[name]
-        self._start[name] = None
-
-    def get_total(self):
-        return self._records
-
-    def print_per_process(self, mpi):
-        for this_rank in range(mpi.size()):
-            if mpi.rank() == this_rank:
-                print(f"Timing {this_rank}:")
-                for n, v in timer.get_total().items():
-                    print(f"{n}: {v}")
-                print("")
-            mpi.comm.Barrier()
-
-    def print_single(self):
-        print("Timing:")
-        for n, v in timer.get_total().items():
-            print(f"{n}: {v}")
-
-    def print_total(self, mpi):
-        if not mpi.mpi_on:
-            self.print_single()
-            return
-
-        if mpi.is_master():
-            print("Timing total:")
-        for n, v in timer.get_total().items():
-            tot_v = mpi.comm.reduce(v, root=0)
-            if mpi.is_master():
-                print(f"{n}: {tot_v}")
-
-
-timer = Timer()
-
-
-def timed(func):
-    func_signature = inspect.signature(func)
-
-    @functools.wraps(func)
-    def new_func(*args, **kwargs):
-        bound_arguments = func_signature.bind(*args, **kwargs)
-        bound_arguments.apply_defaults()
-        args = bound_arguments.args
-
-        timer.start(func.__name__)
-        ret = func(*args)
-        cupy.cuda.stream.get_current_stream().synchronize()
-        timer.stop(func.__name__)
-
-        return ret
-    return new_func
-
-
 class LogFactorialTable:
+    """Used to generate and save a table for log(factorial(n)) to avoid
+    recalculation"""
     def __init__(self):
-        # self._create_table(maximum)
         self._table = None
 
     def _create_table(self, maximum):
@@ -193,6 +129,8 @@ class LogFactorialTable:
         self._table = cupy.asarray(table, dtype="float32")
 
     def table(self, maximum):
+        """Get a table (as a numpy/cupy array) with a specified maximum
+        index"""
         if self._table is None or len(self._table) <= maximum:
             self._create_table(maximum)
         return self._table
@@ -201,16 +139,17 @@ class LogFactorialTable:
 log_factorial = LogFactorialTable()
 
 
-class SliceSums:
+class ResizableArray:
+    """Stores an array to reuse, but automatically update size when needed."""
     def __init__(self, size=100):
         self._array = None
         self._last_size = size
 
     def _allocate_array(self, size):
-        # print(f"Allocate slice sums array of size {size}")
         self._array = cupy.empty(size, dtype="float32")
 
     def array(self, size=None):
+        """Get the array, create new if size increased"""
         if (
                 size is not None and
                 (self._array is None or len(self._array) < size)
@@ -221,100 +160,13 @@ class SliceSums:
         return self._array[:self._last_size]
 
 
-slice_sums = SliceSums()
-
-
-def print_timing(mpi=None):
-    if mpi is None or mpi.mpi_on:
-        timer.print_single()
-    else:
-        timer.print_total(mpi)
-
-
-def import_cuda_file(file_name, kernel_names, absolute_path=False):
-    threads_code = f"const int NTHREADS = {_NTHREADS};"
-    cuda_files_dir = os.path.join(os.path.split(__file__)[0], "cuda")
-    header_file = "header.cu"
-    with open(os.path.join(cuda_files_dir, header_file), "r") as file_handle:
-        header_source = file_handle.read()
-    if not absolute_path:
-        file_name = os.path.join(cuda_files_dir, file_name)
-    with open(file_name, "r") as file_handle:
-        main_source = file_handle.read()
-    combined_source = "\n".join((header_source, threads_code, main_source))
-    module = cupy.RawModule(code=combined_source,
-                            options=("--std=c++11", ),
-                            name_expressions=kernel_names)
-    import sys
-    module.compile(log_stream=sys.stdout)
-    kernels = {}
-    for this_name in kernel_names:
-        kernels[this_name] = module.get_function(this_name)
-    return kernels
-
-
-def import_kernels():
-    emc_kernels = import_cuda_file(
-        "emc_cuda.cu",
-        ["kernel_expand_model",
-         "kernel_insert_slices",
-         "kernel_expand_model_2d",
-         "kernel_insert_slices_2d",
-         "kernel_rotate_model"])
-    respons_kernels = import_cuda_file(
-        "calculate_responsabilities_cuda.cu",
-        ["kernel_sum_slices",
-         "kernel_calculate_responsabilities_poisson",
-         "kernel_calculate_responsabilities_poisson_scaling",
-         "kernel_calculate_responsabilities_poisson_per_pattern_scaling",
-         "kernel_calculate_responsabilities_poisson_sparse",
-         "kernel_calculate_responsabilities_poisson_sparse_scaling",
-         "kernel_calculate_responsabilities_poisson_sparse_per_pattern_"
-         "scaling",
-         "kernel_calculate_responsabilities_poisson_sparser",
-         "kernel_calculate_responsabilities_poisson_sparser_scaling",
-         "kernel_calculate_responsabilities_gaussian",
-         "kernel_calculate_responsabilities_gaussian_scaling",
-         "kernel_calculate_responsabilities_gaussian_per_pattern_scaling"])
-    scaling_kernels = import_cuda_file(
-        "calculate_scaling_cuda.cu",
-        ["kernel_calculate_scaling_poisson",
-         "kernel_calculate_scaling_poisson_sparse",
-         "kernel_calculate_scaling_poisson_sparser",
-         "kernel_calculate_scaling_per_pattern_poisson",
-         "kernel_calculate_scaling_per_pattern_poisson_sparse"])
-    slices_kernels = import_cuda_file(
-        "update_slices_cuda.cu",
-        ["kernel_normalize_slices",
-         "kernel_update_slices<int>",
-         "kernel_update_slices<float>",
-         "kernel_update_slices_scaling<int>",
-         "kernel_update_slices_scaling<float>",
-         "kernel_update_slices_per_pattern_scaling<int>",
-         "kernel_update_slices_per_pattern_scaling<float>",
-         "kernel_update_slices_sparse",
-         "kernel_update_slices_sparse_scaling",
-         "kernel_update_slices_sparse_per_pattern_scaling",
-         "kernel_update_slices_sparser",
-         "kernel_update_slices_sparser_scaling"])
-    tools_kernels = import_cuda_file(
-        "tools.cu",
-        ["kernel_blur_model"])
-    kernels = {**emc_kernels,
-               **respons_kernels,
-               **scaling_kernels,
-               **slices_kernels,
-               **tools_kernels}
-    return kernels
+slice_sums = ResizableArray()
 
 
 def set_nthreads(nthreads):
     global _NTHREADS, kernels
     _NTHREADS = nthreads
     kernels = import_kernels()
-
-
-kernels = import_kernels()
 
 
 def number_of_patterns(patterns):
@@ -533,7 +385,7 @@ def check_patterns(patterns, npatterns, shape):
         raise ValueError("Invalid pattern format")
 
 
-@timed
+@timing.timed
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32, None)
 def expand_model(model,
                  slices,
@@ -564,7 +416,7 @@ def expand_model(model,
          interpolation.value))
 
 
-@timed
+@timing.timed
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32,
               cupy.float32, cupy.float32, None)
 def insert_slices(model,
@@ -602,7 +454,7 @@ def insert_slices(model,
          interpolation.value))
 
 
-@timed
+@timing.timed
 def update_slices(slices,
                   patterns,
                   responsabilities,
@@ -861,7 +713,7 @@ def update_slices_dense_float(slices,
              scalings))
 
 
-@timed
+@timing.timed
 def calculate_responsabilities_poisson(patterns,
                                        slices,
                                        responsabilities,
@@ -1069,7 +921,7 @@ def calculate_responsabilities_poisson_sparser(patterns,
                                   "with sparser format.")
 
 
-@timed
+@timing.timed
 def calculate_scaling_poisson(patterns, slices, scaling):
     if isinstance(patterns, dict):
         # patterns are spares
@@ -1212,7 +1064,7 @@ def calculate_scaling_per_pattern_poisson_sparse(patterns,
          number_of_rotations))
 
 
-@timed
+@timing.timed
 @type_checked(cupy.float32, cupy.float32, cupy.float32)
 def expand_model_2d(model,
                     slices,
@@ -1236,7 +1088,7 @@ def expand_model_2d(model,
          rotations))
 
 
-@timed
+@timing.timed
 @type_checked(cupy.float32, cupy.float32, cupy.float32, cupy.float32,
               cupy.float32, None)
 def insert_slices_2d(model,
@@ -1269,7 +1121,7 @@ def insert_slices_2d(model,
          interpolation.value))
 
 
-@timed
+@timing.timed
 @type_checked(None, cupy.float32, cupy.float32, None)
 def assemble_model(patterns,
                    rotations,
@@ -1299,7 +1151,7 @@ def assemble_model(patterns,
     return model
 
 
-@timed
+@timing.timed
 @type_checked(cupy.float32, None, None)
 def blur_model(model, sigma, cutoff):
     tmp_model = cupy.zeros_like(model)
@@ -1312,7 +1164,7 @@ def blur_model(model, sigma, cutoff):
     del tmp_model
 
 
-@timed
+@timing.timed
 @type_checked(cupy.float32, cupy.float32)
 def rotate_model(model, rotation):
     if rotation.shape != (4, ):
