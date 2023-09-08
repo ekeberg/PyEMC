@@ -17,12 +17,29 @@ class DataReader:
             self._mpi = mpi_module.MpiDistNoMpi()
             self._mpi.set_number_of_patterns(number_of_patterns)
 
+    def dataset_format(self, file_location):
+        if isinstance(file_location, h5py.Dataset):
+            if numpy.issubdtype(file_location.dtype, numpy.integer):
+                return pyemc.PatternType.DENSE
+            elif numpy.issubdtype(file_location.dtype, numpy.floating):
+                return pyemc.PatternType.DENSEFLOAT
+            else:
+                raise ValueError(f"Unsupported dataset of type {file_location.dtype}")
+        else:
+            if "ones_indices" in file_location:
+                return pyemc.PatternType.SPARSER
+            elif "indices" in file_location:
+                return pyemc.PatternType.SPARSE
+            else:
+                raise ValueError("Unsupported dataset")
+
     def read_patterns(self, file_name, file_loc):
         with h5py.File(file_name, "r") as file_handle:
             file_location = file_handle[file_loc]
-            data_type = pyemc.pattern_type(file_location)
-            # data_type = dataset_format(file_location)
+            # data_type = pyemc.pattern_type(file_location)
+            data_type = self.dataset_format(file_location)
         load_functions = {pyemc.PatternType.DENSE: utils.read_dense_data,
+                          pyemc.PatternType.DENSEFLOAT: utils.read_dense_data,
                           pyemc.PatternType.SPARSE: utils.read_sparse_data,
                           pyemc.PatternType.SPARSER: utils.read_sparser_data}
         data = load_functions[data_type](file_name, file_loc,
@@ -41,7 +58,7 @@ class EMC:
         else:
             self._mpi = mpi_module.MpiDistNoMpi()
 
-        if mpi.mpi_on:
+        if self._mpi.mpi_on:
             self._mpi_flags = {"SUM": mpi_module.MPI.SUM,
                                "MAX": mpi_module.MPI.MAX}
 
@@ -55,6 +72,8 @@ class EMC:
         self._mpi_buffers = {}
 
         self._chunk_size = 1000
+
+        self._interpolation = pyemc.Interpolation.LINEAR
 
         if self._two_dimensional:
             self.set_rotsampling_2d(n)
@@ -98,6 +117,20 @@ class EMC:
         self._rotation_weights_cpu = numpy.ones(my_weights, dtype="float32")
         self._number_of_rotations = len(self._rotations)
 
+    def set_interpolation(self, interpolation):
+        try:
+            self._interpolation = pyemc.Interpolation(interpolation)
+        except ValueError:
+            if interpolation.lower() == "nearest":
+                self._interpolation = pyemc.Interpolation.NEAREST
+            elif interpolation.lower() == "linear":
+                self._interpolation = pyemc.Interpolation.LINEAR
+            elif interpolation.lower() == "sinc":
+                self._interpolation = pyemc.Interpolation.SINC
+            else:
+                raise ValueError(f"{interpolation} is not a valid "
+                                 "interpolation")
+        
     def set_model(self, model):
         # Update model, number_of_models, model_send/recv
         # Interpret starting model
@@ -335,12 +368,14 @@ class EMC:
                 if self._two_dimensional:
                     pyemc.expand_model_2d(this_model,
                                           self._slices[slice_small],
-                                          self._rotations[slice_big])
+                                          self._rotations[slice_big],
+                                          interpolation=self._interpolation)
                 else:
                     pyemc.expand_model(this_model,
                                        self._slices[slice_small],
                                        self._rotations[slice_big],
-                                       self._coordinates)
+                                       self._coordinates,
+                                       interpolation=self._interpolation)
                 self._slices[:, self._mask_inv] = -1
                 if self._rescale:
                     pyemc.calculate_scaling_poisson(
@@ -429,14 +464,16 @@ class EMC:
                                            this_model_weight,
                                            self._slices[slice_small],
                                            slice_weights,
-                                           self._rotations[slice_big])
+                                           self._rotations[slice_big],
+                                           interpolation=self._interpolation)
                 else:
                     pyemc.insert_slices(this_model,
                                         this_model_weight,
                                         self._slices[slice_small],
                                         slice_weights,
                                         self._rotations[slice_big],
-                                        self._coordinates)
+                                        self._coordinates,
+                                        interpolation=self._interpolation)
 
             if self._mpi.mpi_on:
                 self._mpi_buffers["model_1"][...] = this_model.get()
@@ -597,3 +634,4 @@ class EMC:
             return None
         else:
             return self._resp_cpu.max(axis=0).mean()
+
