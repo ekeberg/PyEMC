@@ -1,0 +1,7 @@
+test/*
+build/*
+test/*
+pyemc.egg-info/*
+pyemc/__pycache__/*
+*.egg
+Scratch/*
