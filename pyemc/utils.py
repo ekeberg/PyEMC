@@ -2,6 +2,7 @@ import cupy
 import h5py
 import numpy
 import warnings
+from . import mpi as mpi_module
 
 
 def ewald_coordinates(image_shape, wavelength, detector_distance, pixel_size,
@@ -156,15 +157,9 @@ def read_dense_data(file_name, file_key=None, start_index=0, end_index=-1,
 
     with h5py.File(file_name, "r") as file_handle:
         patterns = file_handle[file_key][start_index:end_index, ...]
-        if (
-                patterns.dtype == numpy.dtype("int32") or
-                patterns.dtype == numpy.dtype("int64")
-        ):
+        if numpy.issubdtype(patterns.dtype, numpy.integer):
             patterns = output_module.asarray(patterns, dtype="int32")
-        elif (
-                patterns.dtype == numpy.dtype("float32") or
-                patterns.dtype == numpy.dtype("float64")
-        ):
+        elif numpy.issubdtype(patterns.dtype, numpy.floating):
             patterns = output_module.asarray(patterns, dtype="float32")
         else:
             raise ValueError(f"Can't read data of type {patterns.dtype}")
@@ -215,7 +210,7 @@ def init_model_radial_average_old(patterns, randomness=0.):
     return model
 
 
-def init_model_radial_average(patterns, randomness=0.):
+def init_model_radial_average(patterns, randomness=0., mpi=None):
     """Simple function to create a random start. The new array will have
     a side similar to the second axis of the patterns"""
 
@@ -243,8 +238,13 @@ def init_model_radial_average(patterns, randomness=0.):
     model = pattern_radial_average[numpy.int32(r_int)]
     model *= 1 - randomness + 2*randomness * numpy.random.random((side, )*3)
     model[r_int_copy >= len(pattern_radial_average)] = -1.
-    return model
 
+    if mpi is not None and mpi.mpi_on:
+        model_recv = numpy.zeros_like(model)
+        mpi.comm.Allreduce(model, model_recv, op=mpi_module.MPI.SUM)
+        model = model_recv / mpi.size()
+
+    return model
 
 def chunks(number_of_rotations, chunk_size):
     """Generator for slices to chunk up the data"""
