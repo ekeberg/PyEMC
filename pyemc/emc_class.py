@@ -48,6 +48,50 @@ class DataReader:
         return data
 
 
+class Saver:
+    def __init__(self, file_name, emc, mpi=None):
+        self.file_name = file_name
+        self._mpi = mpi
+        self.emc = emc
+        self._is_master = True if mpi is None else mpi.is_master()
+
+        if self._is_master:
+            with h5py.File(self.file_name, "w") as file_handle:
+                pass
+
+    def set_emc(self, emc):
+        self.emc = emc
+
+    def get_group(self, file_handle):
+        """Return the group, create if it doesn't exist"""
+        iteration = self.emc.current_iteration
+        group_name = f"it{iteration:04}"
+        if group_name in file_handle:
+            return file_handle[group_name]
+        else:
+            if "latest" in file_handle:
+                del file_handle["latest"]
+            file_handle["latest"] = h5py.SoftLink(f"/{group_name}")
+            return file_handle.create_group(group_name)
+
+    def save_model(self):
+        model = self.emc.get_model()
+        average_best_resp = self.emc.get_average_best_resp()
+        best_rotations = self.emc.get_best_rotations()
+        if self._is_master:
+            with h5py.File(self.file_name, "a") as file_handle:
+                group = self.get_group(file_handle)
+                group["model"] = model
+                group["best_resp"] = average_best_resp
+                group["best_rotations"] = best_rotations
+
+    def save_value(self, name, value):
+        if self._is_master:
+            with h5py.File(self.file_name, "a") as file_handle:
+                group = self.get_group(file_handle)
+                group[name] = value
+
+
 class EMC:
     def __init__(self, patterns, mask, start_model, coordinates, n,
                  rescale=False, mpi=None, quiet=False, two_dimensional=False):
@@ -634,4 +678,3 @@ class EMC:
             return None
         else:
             return self._resp_cpu.max(axis=0).mean()
-
