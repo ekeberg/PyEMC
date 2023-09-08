@@ -15,6 +15,7 @@ MAX_PHOTON_COUNT = 200000
 class Interpolation(enum.Enum):
     NEAREST = 1
     LINEAR = 2
+    SINC = 3
 
 
 class PatternType(enum.Enum):

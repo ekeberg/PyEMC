@@ -46,13 +46,13 @@ __device__ float device_model_get_nn(const float *const model,
 }
 
 
-__device__ float device_model_get(const float *const model,
-				  const int model_x,
-				  const int model_y,
-				  const int model_z,
-				  const float coordinate_x,
-				  const float coordinate_y,
-				  const float coordinate_z)
+__device__ float device_model_get_linear(const float *const model,
+					 const int model_x,
+					 const int model_y,
+					 const int model_z,
+					 const float coordinate_x,
+					 const float coordinate_y,
+					 const float coordinate_z)
 {
   int low_x, low_y, low_z;
   float low_weight_x, low_weight_y, low_weight_z;
@@ -108,6 +108,72 @@ __device__ float device_model_get(const float *const model,
   }
 }
 
+__device__ float device_model_get_sinc(const float *const model,
+				       const int model_x,
+				       const int model_y,
+				       const int model_z,
+				       const float coordinate_x,
+				       const float coordinate_y,
+				       const float coordinate_z) {
+  const int window_radius = 2;
+  const float sinc_scaling = 0.25;
+
+  float interp_sum = 0.;
+  float interp_weight = 0.;
+  float weight;
+  float dist_x, dist_y, dist_z;
+  float weight_x, weight_y, weight_z;
+
+  int index_x, index_y, index_z;
+  int start_x = (int) (coordinate_x - window_radius + 0.5);
+  int end_x = (int) (coordinate_x + window_radius + 0.5);
+  int start_y = (int) (coordinate_y - window_radius + 0.5);
+  int end_y = (int) (coordinate_y + window_radius + 0.5);
+  int start_z = (int) (coordinate_z - window_radius + 0.5);
+  int end_z = (int) (coordinate_z + window_radius + 0.5);
+
+  for (index_x = start_x; index_x <= end_x; index_x++) {
+    if (index_x < 0 || index_x >= model_x) continue;
+    dist_x = ((float) index_x) - coordinate_x;
+    if (dist_x == 0) {
+      weight_x = 1.;
+    } else {
+      weight_x = sin(sinc_scaling*3.1416*dist_x)/dist_x;
+    }
+    
+    for (index_y = start_y; index_y <= end_y; index_y++) {
+      if (index_y < 0 || index_y >= model_y) continue;
+      dist_y = ((float) index_y) - coordinate_y;
+      if (dist_y == 0) {
+	weight_y = 1.;
+      } else {
+	weight_y = sin(sinc_scaling*3.1416*dist_y)/dist_y;
+      }
+      
+      for (index_z = start_z; index_z <= end_z; index_z++) {
+	if (index_z < 0 || index_z >= model_z) continue;
+	dist_z = ((float) index_z) - coordinate_z;
+	if (dist_z == 0) {
+	  weight_z = 1.;
+	} else {
+	  weight_z = sin(sinc_scaling*3.1416*dist_z)/dist_z;
+	}
+	
+	if (model[model_z*model_y*index_x + model_z*index_y + index_z] >= 0.) {
+	  weight = weight_x * weight_y * weight_z;
+	  interp_sum += weight * model[model_z*model_y*index_x + model_z*index_y + index_z];
+	  interp_weight += weight;
+	}
+      }
+    }
+  }
+  if (interp_weight > 0.) {
+    return interp_sum / interp_weight;
+  } else {
+    return -1.f;
+  }
+}
+
 __device__ void device_get_slice(const float *const model,
 				 const int model_x,
 				 const int model_y,
@@ -156,8 +222,10 @@ __device__ void device_get_slice(const float *const model,
 	     model_z/2.0 - 0.5);
     if (interpolation == 1) {
       slice[index] = device_model_get_nn(model, model_x, model_y, model_z, new_x, new_y, new_z);
+    } else if (interpolation == 2) {
+      slice[index] = device_model_get_linear(model, model_x, model_y, model_z, new_x, new_y, new_z);
     } else {
-      slice[index] = device_model_get(model, model_x, model_y, model_z, new_x, new_y, new_z);
+      slice[index] = device_model_get_sinc(model, model_x, model_y, model_z, new_x, new_y, new_z);
     }
   }
 }
@@ -187,16 +255,16 @@ __global__ void kernel_expand_model(const float *const model,
 }
 				    
 
-__device__ void device_model_set(float *const model,
-				 float *const model_weights,
-				 const int model_x,
-				 const int model_y,
-				 const int model_z,
-				 const float coordinate_x,
-				 const float coordinate_y,
-				 const float coordinate_z,
-				 const float value,
-				 const float value_weight)
+__device__ void device_model_set_linear(float *const model,
+					float *const model_weights,
+					const int model_x,
+					const int model_y,
+					const int model_z,
+					const float coordinate_x,
+					const float coordinate_y,
+					const float coordinate_z,
+					const float value,
+					const float value_weight)
 {
   int low_x, low_y, low_z;
   float low_weight_x, low_weight_y, low_weight_z;
@@ -267,6 +335,77 @@ __device__ void device_model_set_nn(float *const model,
   }
 }
 
+
+__device__ void device_model_set_sinc(float *const model,
+				      float *const model_weights,
+				      const int model_x,
+				      const int model_y,
+				      const int model_z,
+				      const float coordinate_x,
+				      const float coordinate_y,
+				      const float coordinate_z,
+				      const float value,
+				      const float value_weight) {
+  const float window_radius = 2.;
+  const float sinc_scaling = 0.25;
+
+  float weight;
+  float dist_x, dist_y, dist_z;
+  float weight_x, weight_y, weight_z;
+
+  int index_x, index_y, index_z;
+  int start_x = (int) (coordinate_x - window_radius + 0.5);
+  int end_x = (int) (coordinate_x + window_radius + 0.5);
+  int start_y = (int) (coordinate_y - window_radius + 0.5);
+  int end_y = (int) (coordinate_y + window_radius + 0.5);
+  int start_z = (int) (coordinate_z - window_radius + 0.5);
+  int end_z = (int) (coordinate_z + window_radius + 0.5);
+
+  for (index_x = start_x; index_x <= end_x; index_x++) {
+    if (index_x < 0 || index_x >= model_x) continue;
+    dist_x = ((float) index_x) - coordinate_x;
+    if (dist_x == 0) {
+      weight_x = 1.;
+    } else {
+      weight_x = sin(sinc_scaling*3.1416*dist_x)/dist_x;
+    }
+    
+    for (index_y = start_y; index_y <= end_y; index_y++) {
+      if (index_y < 0 || index_y >= model_y) continue;
+      dist_y = ((float) index_y) - coordinate_y;
+      if (dist_y == 0) {
+	weight_y = 1.;
+      } else {
+	weight_y = sin(sinc_scaling*3.1416*dist_y)/dist_y;
+      }
+      
+      for (index_z = start_z; index_z <= end_z; index_z++) {
+	if (index_z < 0 || index_z >= model_z) continue;
+	dist_z = ((float) index_z) - coordinate_z;
+	if (dist_z == 0) {
+	  weight_z = 1.;
+	} else {
+	  weight_z = sin(sinc_scaling*3.1416*dist_z)/dist_z;
+	}
+	
+	if (model[model_z*model_y*index_x + model_z*index_y + index_z] >= 0.) {
+	  weight = weight_x * weight_y * weight_z;
+	  
+	  if (weight > 0) {
+	    atomicAdd(&model[model_z*model_y*index_x + model_z*index_y + index_z],
+		      weight*value_weight*value);
+	    atomicAdd(&model_weights[model_z*model_y*index_x + model_z*index_y + index_z],
+		      weight*value_weight);
+	  }
+	  
+	}
+      }
+    }
+  }
+}
+
+
+
 __device__ void device_insert_slice(float *const model,
 				    float *const model_weights,
 				    const int model_x,
@@ -323,11 +462,16 @@ __device__ void device_insert_slice(float *const model,
 			    model_x, model_y, model_z,
 			    new_x, new_y, new_z,
 			    slice[index], slice_weight);
+      } else if (interpolation == 2) {
+	device_model_set_linear(model, model_weights,
+				model_x, model_y, model_z,
+				new_x, new_y, new_z,
+				slice[index], slice_weight);
       } else {
-	device_model_set(model, model_weights,
-			 model_x, model_y, model_z,
-			 new_x, new_y, new_z,
-			 slice[index], slice_weight);
+	device_model_set_sinc(model, model_weights,
+			      model_x, model_y, model_z,
+			      new_x, new_y, new_z,
+			      slice[index], slice_weight);
       }
     }
   }
@@ -442,17 +586,28 @@ __device__ void device_insert_slice_partial(float *const model,
 			      new_z-(float)model_z_min,
 			      slice[x*image_y+y],
 			      slice_weight);
+	} else if (interpolation == 2) {
+	  device_model_set_linear(model,
+				  model_weights,
+				  model_x_max-model_x_min,
+				  model_y_max-model_y_min,
+				  model_z_max-model_z_min,
+				  new_x-(float)model_x_min,
+				  new_y-(float)model_y_min,
+				  new_z-(float)model_z_min,
+				  slice[x*image_y+y],
+				  slice_weight);
 	} else {
-	  device_model_set(model,
-			   model_weights,
-			   model_x_max-model_x_min,
-			   model_y_max-model_y_min,
-			   model_z_max-model_z_min,
-			   new_x-(float)model_x_min,
-			   new_y-(float)model_y_min,
-			   new_z-(float)model_z_min,
-			   slice[x*image_y+y],
-			   slice_weight);
+	  device_model_set_sinc(model,
+				model_weights,
+				model_x_max-model_x_min,
+				model_y_max-model_y_min,
+				model_z_max-model_z_min,
+				new_x-(float)model_x_min,
+				new_y-(float)model_y_min,
+				new_z-(float)model_z_min,
+				slice[x*image_y+y],
+				slice_weight);
 	}
       }
     }
@@ -553,18 +708,18 @@ __global__ void kernel_rotate_model(const float *const model,
     new_z = model_z/2. - 0.5 + (rotation_matrix[6]*start_x +
 				rotation_matrix[7]*start_y +
 				rotation_matrix[8]*start_z);
-    rotated_model[index] = device_model_get(model,
-					    model_x, model_y, model_z,
-					    new_x, new_y, new_z);
+    rotated_model[index] = device_model_get_linear(model,
+						   model_x, model_y, model_z,
+						   new_x, new_y, new_z);
   }
 }
 
 
-__device__ float device_model_2dget(const float *const model,
-				    const int model_x,
-				    const int model_y,
-				    const float coordinate_x,
-				    const float coordinate_y)
+__device__ float device_model_2dget_linear(const float *const model,
+					   const int model_x,
+					   const int model_y,
+					   const float coordinate_x,
+					   const float coordinate_y)
 {
   int low_x, low_y;
   float low_weight_x, low_weight_y;
@@ -610,14 +765,14 @@ __device__ float device_model_2dget(const float *const model,
   }
 }
 
-__device__ void device_model_2dset(float *const model,
-				   float *const model_weights,
-				   const int model_x,
-				   const int model_y,
-				   const float coordinate_x,
-				   const float coordinate_y,
-				   const float value,
-				   const float value_weight)
+__device__ void device_model_2dset_linear(float *const model,
+					  float *const model_weights,
+					  const int model_x,
+					  const int model_y,
+					  const float coordinate_x,
+					  const float coordinate_y,
+					  const float value,
+					  const float value_weight)
 {
   int low_x, low_y;
   float low_weight_x, low_weight_y;
@@ -699,7 +854,7 @@ __device__ void device_get_slice_2d(const float *const model,
 	       m11*this_y +
 	       model_y/2.0 - 0.5);
 
-      slice[x*image_y+y] = device_model_2dget(model, model_x, model_y, new_x, new_y);
+      slice[x*image_y+y] = device_model_2dget_linear(model, model_x, model_y, new_x, new_y);
     }
   }
 }
@@ -759,10 +914,10 @@ __device__ void device_insert_slice_2d(float *const model,
 				new_x, new_y,
 				slice[x*image_y+y], slice_weight);
 	} else {
-	  device_model_2dset(model, model_weights,
-			     model_x, model_y,
-			     new_x, new_y,
-			     slice[x*image_y+y], slice_weight);
+	  device_model_2dset_linear(model, model_weights,
+				    model_x, model_y,
+				    new_x, new_y,
+				    slice[x*image_y+y], slice_weight);
 	}
       }
     }
