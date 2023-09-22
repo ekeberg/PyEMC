@@ -9,12 +9,13 @@ from . import utils
 
 class DataReader:
     def __init__(self, mpi=None, number_of_patterns=None):
-        if mpi is None and number_of_patterns is None:
-            raise ValueError("Must specify either mpi or number_of_patterns")
+        # if mpi is None and number_of_patterns is None:
+        #     raise ValueError("Must specify either mpi or number_of_patterns")
         if mpi is not None:
             self._mpi = mpi
         else:
             self._mpi = mpi_module.MpiDistNoMpi()
+        if number_of_patterns is not None:
             self._mpi.set_number_of_patterns(number_of_patterns)
 
     def dataset_format(self, file_location):
@@ -33,11 +34,21 @@ class DataReader:
             else:
                 raise ValueError("Unsupported dataset")
 
+    def dataset_npatterns(self, file_location):
+        if isinstance(file_location, h5py.Dataset):
+            return file_location.shape[0]
+        else:
+            return file_location["start_indices"].shape[0]-1
+
     def read_patterns(self, file_name, file_loc):
         with h5py.File(file_name, "r") as file_handle:
             file_location = file_handle[file_loc]
             # data_type = pyemc.pattern_type(file_location)
             data_type = self.dataset_format(file_location)
+
+            if not self._mpi.npatterns_is_set():
+                self._mpi.set_number_of_patterns(self.dataset_npatterns(file_location))
+
         load_functions = {pyemc.PatternType.DENSE: utils.read_dense_data,
                           pyemc.PatternType.DENSEFLOAT: utils.read_dense_data,
                           pyemc.PatternType.SPARSE: utils.read_sparse_data,
@@ -94,7 +105,7 @@ class Saver:
 
 class EMC:
     def __init__(self, patterns, mask, start_model, coordinates, n,
-                 rescale=False, mpi=None, quiet=False, two_dimensional=False):
+                 rescale=False, mpi=None, quiet=True, two_dimensional=False):
         # Initialize MPI
 
         if mpi is not None:
